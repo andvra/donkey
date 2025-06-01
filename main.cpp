@@ -36,20 +36,24 @@ void processInput(GLFWwindow* window) {
 }
 
 struct Entity {
-	int offset_x;
-	int offset_y;
-	int width;
-	int height;
-	int v_x;
-	int v_y;
+	int offset_x = {};
+	int offset_y = {};
+	int width = {};
+	int height = {};
+	int v_x = {};
+	int v_y = {};
 	bool is_on_ground = false;
 };
 
+struct Player : public Entity {
+	int score = 0;
+};
+
 struct Line_segment {
-	float x_start;
-	float y_start;
-	float x_end;
-	float y_end;
+	float x_start = {};
+	float y_start = {};
+	float x_end = {};
+	float y_end = {};
 };
 
 void spawn_barrel(std::vector<Entity>& barrels) {
@@ -65,7 +69,7 @@ void spawn_barrel(std::vector<Entity>& barrels) {
 	barrels.push_back(barrel);
 }
 
-void physics(GLFWwindow* window, int num_steps, std::vector<Line_segment>& line_segments, Entity& player, std::vector<Entity>& barrels) {
+void physics(GLFWwindow* window, int num_steps, std::vector<Line_segment>& line_segments, Player& player, std::vector<Entity>& barrels) {
 	auto max_x = 14 * 8;
 	auto max_y = 16 * 8;
 
@@ -159,7 +163,7 @@ void physics(GLFWwindow* window, int num_steps, std::vector<Line_segment>& line_
 	}
 }
 
-void jump(Entity& player) {
+void jump(Player& player) {
 	if (!player.is_on_ground) {
 		return;
 	}
@@ -168,15 +172,15 @@ void jump(Entity& player) {
 	player.is_on_ground = false;
 }
 
-void move_left(Entity& player) {
+void move_left(Player& player) {
 	player.v_x = -1;
 }
 
-void move_right(Entity& player) {
+void move_right(Player& player) {
 	player.v_x = 1;
 }
 
-void brain_human(GLFWwindow* window, Entity& player) {
+void brain_human(GLFWwindow* window, Player& player) {
 	if (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS) {
 		move_left(player);
 	}
@@ -190,7 +194,7 @@ void brain_human(GLFWwindow* window, Entity& player) {
 	}
 }
 
-void brain_machine(GLFWwindow* window, Entity& player, std::vector<Entity>& barrels) {
+void brain_machine(GLFWwindow* window, std::vector<Line_segment>& line_segments, Player& player, std::vector<Entity>& barrels) {
 	if (barrels.empty()) {
 		return;
 	}
@@ -215,16 +219,21 @@ void brain_machine(GLFWwindow* window, Entity& player, std::vector<Entity>& barr
 			jump(player);
 		}
 	}
+
+	Line_segment* line_segment_closest_better = nullptr;
+
+	for (auto& line_segment : line_segments) {
+	}
 }
 
-void brain(GLFWwindow* window, Entity& player, std::vector<Entity>& barrels, bool is_human) {
+void brain(GLFWwindow* window, std::vector<Line_segment>& line_segments, Player& player, std::vector<Entity>& barrels, bool is_human) {
 	player.v_x = 0;
 
 	if (is_human) {
 		brain_human(window, player);
 	}
 	else {
-		brain_machine(window, player, barrels);
+		brain_machine(window, line_segments, player, barrels);
 	}
 }
 
@@ -264,7 +273,7 @@ int main() {
 	glDeleteShader(vertexShader);
 	glDeleteShader(fragmentShader);
 
-	auto player = Entity();
+	auto player = Player();
 
 	player.offset_x = 0;
 	player.offset_y = -50;
@@ -415,7 +424,7 @@ int main() {
 		auto cur_time = glfwGetTime();
 
 		if ((cur_time - time_last_physics) > physics_update_rate_s) {
-			brain(window, player, barrels, is_human);
+			brain(window, line_segments, player, barrels, is_human);
 			physics(window, num_physics_steps, line_segments, player, barrels);
 			time_last_physics = cur_time;
 			num_physics_steps++;

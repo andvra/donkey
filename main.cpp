@@ -192,10 +192,6 @@ void brain_human(GLFWwindow* window, Player& player) {
 }
 
 void brain_machine(std::vector<Line_segment>& line_segments, std::vector<Player>& players, std::vector<Entity>& barrels) {
-	if (barrels.empty()) {
-		return;
-	}
-
 	for (auto& player : players) {
 		Entity* barrel_closest_above = nullptr;
 		auto diff_y_closest_above = std::numeric_limits<int>::max();

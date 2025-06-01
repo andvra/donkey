@@ -50,10 +50,10 @@ struct Player : public Entity {
 };
 
 struct Line_segment {
-	float x_start = {};
-	float y_start = {};
-	float x_end = {};
-	float y_end = {};
+	int x_start = {};
+	int y_start = {};
+	int x_end = {};
+	int y_end = {};
 };
 
 void spawn_barrel(std::vector<Entity>& barrels) {
@@ -69,17 +69,16 @@ void spawn_barrel(std::vector<Entity>& barrels) {
 	barrels.push_back(barrel);
 }
 
-void physics(GLFWwindow* window, int num_steps, std::vector<Line_segment>& line_segments, std::vector<Player>& players, std::vector<Entity>& barrels) {
+void physics(int num_steps, std::vector<Line_segment>& line_segments, std::vector<Player>& players, std::vector<Entity>& barrels) {
 	auto max_x = 14 * 8;
-	auto max_y = 16 * 8;
 
 	if (num_steps % 100 == 0) {
 		spawn_barrel(barrels);
 	}
 
 	auto get_collision_line_segment = [&line_segments](Entity& entity, int y_before, int y_after) {
-		auto x_left = (float)(entity.offset_x - entity.width / 2);
-		auto x_right = (float)(entity.offset_x + entity.width / 2);
+		auto x_left = entity.offset_x - entity.width / 2;
+		auto x_right = entity.offset_x + entity.width / 2;
 		Line_segment* cur_line_segment = nullptr;
 
 		for (auto& line_segment : line_segments) {
@@ -196,7 +195,7 @@ void brain_human(GLFWwindow* window, Player& player) {
 	}
 }
 
-void brain_machine(GLFWwindow* window, std::vector<Line_segment>& line_segments, std::vector<Player>& players, std::vector<Entity>& barrels) {
+void brain_machine(std::vector<Line_segment>& line_segments, std::vector<Player>& players, std::vector<Entity>& barrels) {
 	if (barrels.empty()) {
 		return;
 	}
@@ -222,11 +221,11 @@ void brain_machine(GLFWwindow* window, std::vector<Line_segment>& line_segments,
 				jump(player);
 			}
 		}
+		line_segments;
+		//Line_segment* line_segment_closest_better = nullptr;
 
-		Line_segment* line_segment_closest_better = nullptr;
-
-		for (auto& line_segment : line_segments) {
-		}
+		//for (auto& line_segment : line_segments) {
+		//}
 	}
 }
 
@@ -243,7 +242,7 @@ void brain(GLFWwindow* window, std::vector<Line_segment>& line_segments, std::ve
 		brain_human(window, players[0]);
 	}
 	else {
-		brain_machine(window, line_segments, players, barrels);
+		brain_machine(line_segments, players, barrels);
 	}
 }
 
@@ -385,15 +384,15 @@ int main() {
 		3 * 8, 9 * 8 });
 
 	line_segments.push_back({
-		-(num_squares_x / 2) * 8.0f, 5 * 8 + 4,
+		-(num_squares_x / 2) * 8, 5 * 8 + 4,
 		4 * 8, 5 * 8 + 4 });
 
 	auto generate_line_vertices = [&line_segments](uint32_t num_blocks, int x_offset, int y_offset, int x_factor) {
-		for (auto idx_block = 0; idx_block < num_blocks; idx_block++) {
-			float pix_x_start = x_offset + 8 * (x_factor * 2 * idx_block);
-			float pix_x_end = x_offset + 8 * (x_factor * 2 * (idx_block + 1));
-			float pix_y_start = y_offset - idx_block;
-			float pix_y_end = pix_y_start;
+		for (auto idx_block = 0; idx_block < (int)num_blocks; idx_block++) {
+			int pix_x_start = x_offset + 8 * (x_factor * 2 * idx_block);
+			int pix_x_end = x_offset + 8 * (x_factor * 2 * (idx_block + 1));
+			int pix_y_start = y_offset - idx_block;
+			int pix_y_end = pix_y_start;
 			line_segments.push_back({
 				pix_x_start, pix_y_start,
 				pix_x_end, pix_y_end });
@@ -408,7 +407,7 @@ int main() {
 	generate_line_vertices(7, 8 * num_squares_x / 2, -8 * 14 - 2, -1);
 
 	line_segments.push_back({
-		(-num_squares_x / 2) * 8.0f, -8 * 15,
+		(-num_squares_x / 2) * 8, -8 * 15,
 		0, -8 * 15 });
 
 	glGenVertexArrays(1, &buffer_info_lines.vao);
@@ -416,7 +415,7 @@ int main() {
 	glBindVertexArray(buffer_info_lines.vao);
 	glBindBuffer(GL_ARRAY_BUFFER, buffer_info_lines.vbo);
 	glBufferData(GL_ARRAY_BUFFER, line_segments.size() * sizeof(line_segments[0]), line_segments.data(), GL_STATIC_DRAW);
-	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
+	glVertexAttribPointer(0, 2, GL_INT, GL_FALSE, 2 * sizeof(int), (void*)0);
 	glEnableVertexAttribArray(0);
 
 	glUseProgram(shaderProgram);
@@ -446,7 +445,7 @@ int main() {
 
 		while ((cur_time - time_last_physics) > physics_update_rate_s) {
 			brain(window, line_segments, players, barrels, is_human);
-			physics(window, num_physics_steps, line_segments, players, barrels);
+			physics(num_physics_steps, line_segments, players, barrels);
 			time_last_physics += physics_update_rate_s;
 			num_physics_steps++;
 		}
@@ -464,11 +463,11 @@ int main() {
 		// Lines
 		glUniform4f(colorLoc, 240.0f / 255, 82.0f / 255, 156.0f / 255, 1.0f);
 		glBindVertexArray(buffer_info_lines.vao);
-		glDrawArrays(GL_LINES, 0, line_segments.size() * sizeof(line_segments[0]));
+		glDrawArrays(GL_LINES, 0, (GLsizei)line_segments.size() * sizeof(line_segments[0]));
 
 		// Barrels
 		for (auto& barrel : barrels) {
-			glUniform2f(offsetLoc, barrel.offset_x, barrel.offset_y);
+			glUniform2f(offsetLoc, (float)barrel.offset_x, (float)barrel.offset_y);
 			glUniform4f(colorLoc, 0.7f, 0.4f, 0.4f, 1.0f);
 			glBindVertexArray(buffer_info_barrel.vao);
 			glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
@@ -476,7 +475,7 @@ int main() {
 
 		// Players
 		for (auto& player : players) {
-			glUniform2f(offsetLoc, player.offset_x, player.offset_y);
+			glUniform2f(offsetLoc, (float)player.offset_x, (float)player.offset_y);
 			glUniform4f(colorLoc, 0.2f, 0.4f, 1.0f, 1.0f);
 			glBindVertexArray(buffer_info_player.vao);
 			glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);

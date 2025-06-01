@@ -492,7 +492,7 @@ int main() {
 		num_frames_since_last_update++;
 
 		if (time_since_last_fps > 1.0) {
-			std::cout << num_frames_since_last_update / time_since_last_fps << std::endl;
+			std::cout << "FPS / frame rate: " << num_frames_since_last_update / time_since_last_fps << " / " << 100 * time_since_last_fps / num_frames_since_last_update << "ms" << std::endl;
 			time_last_fps = cur_time;
 			num_frames_since_last_update = 0;
 		}
@@ -502,5 +502,6 @@ int main() {
 	}
 
 	glfwTerminate();
+
 	return 0;
 }

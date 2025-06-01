@@ -159,20 +159,72 @@ void physics(GLFWwindow* window, int num_steps, std::vector<Line_segment>& line_
 	}
 }
 
-void brain(GLFWwindow* window, Entity& player) {
-	player.v_x = 0;
+void jump(Entity& player) {
+	if (!player.is_on_ground) {
+		return;
+	}
 
+	player.v_y = 6;
+	player.is_on_ground = false;
+}
+
+void move_left(Entity& player) {
+	player.v_x = -1;
+}
+
+void move_right(Entity& player) {
+	player.v_x = 1;
+}
+
+void brain_human(GLFWwindow* window, Entity& player) {
 	if (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS) {
-		player.v_x = -1;
+		move_left(player);
 	}
 
 	if (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS) {
-		player.v_x = 1;
+		move_right(player);
 	}
 
-	if (player.is_on_ground && glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS) {
-		player.v_y = 6;
-		player.is_on_ground = false;
+	if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS) {
+		jump(player);
+	}
+}
+
+void brain_machine(GLFWwindow* window, Entity& player, std::vector<Entity>& barrels) {
+	if (barrels.empty()) {
+		return;
+	}
+
+	Entity* barrel_closest_above = nullptr;
+	auto diff_y_closest_above = std::numeric_limits<int>::max();
+
+	for (auto& barrel : barrels) {
+		auto diff_y_current = barrel.offset_y - player.offset_y;
+
+		if ((diff_y_current >= 0) && (diff_y_current < diff_y_closest_above)) {
+			diff_y_closest_above = diff_y_current;
+			barrel_closest_above = &barrel;
+		}
+	}
+
+	if (barrel_closest_above) {
+		auto is_close_x = (std::abs(barrel_closest_above->offset_x - player.offset_x) < 12);
+		auto is_close_y = (std::abs(barrel_closest_above->offset_y - player.offset_y) < 12);
+
+		if (is_close_x && is_close_y) {
+			jump(player);
+		}
+	}
+}
+
+void brain(GLFWwindow* window, Entity& player, std::vector<Entity>& barrels, bool is_human) {
+	player.v_x = 0;
+
+	if (is_human) {
+		brain_human(window, player);
+	}
+	else {
+		brain_machine(window, player, barrels);
 	}
 }
 
@@ -356,13 +408,14 @@ int main() {
 	auto physics_update_rate_s = 1.0 / 30;
 	auto time_last_physics = glfwGetTime();
 	auto num_physics_steps = 0;
+	auto is_human = false;
 
 	while (!glfwWindowShouldClose(window)) {
 		processInput(window);
 		auto cur_time = glfwGetTime();
 
 		if ((cur_time - time_last_physics) > physics_update_rate_s) {
-			brain(window, player);
+			brain(window, player, barrels, is_human);
 			physics(window, num_physics_steps, line_segments, player, barrels);
 			time_last_physics = cur_time;
 			num_physics_steps++;

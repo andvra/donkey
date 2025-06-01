@@ -44,7 +44,8 @@ struct Entity {
 	int offset_y;
 	int width;
 	int height;
-	int acc_y;
+	int v_x;
+	int v_y;
 	bool is_on_ground = false;
 };
 
@@ -55,28 +56,41 @@ struct Line_segment {
 	float y_end;
 };
 
-void physics(GLFWwindow* window, std::vector<Line_segment>& line_segments, Entity& player, std::vector<Entity>& barrels) {
+void spawn_barrel(std::vector<Entity>& barrels) {
+	auto barrel = Entity();
+
+	barrel.is_on_ground = false;
+	barrel.height = 8;
+	barrel.width = 8;
+	barrel.offset_y = 100;
+	barrel.offset_x = 0;
+	barrel.v_x = 2 * (2 * (std::rand() % 2) - 1);
+
+	barrels.push_back(barrel);
+}
+
+void physics(GLFWwindow* window, int num_steps, std::vector<Line_segment>& line_segments, Entity& player, std::vector<Entity>& barrels) {
 	auto max_x = 14 * 8;
 	auto max_y = 16 * 8;
 
-	if (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS) {
-		player.offset_x = std::clamp(player.offset_x - 1, -max_x, max_x);
+	if (num_steps % 100 == 0) {
+		spawn_barrel(barrels);
 	}
-	if (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS) {
-		player.offset_x = std::clamp(player.offset_x + 1, -max_x, max_x);
-	}
-	//if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS) {
-	//	player.offset_y = std::clamp(player.offset_y + 1, -max_y, max_y);
-	//}
-	//if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS) {
-	//	player.offset_y = std::clamp(player.offset_y - 1, -max_y, max_y);
-	//}
 
-	if (!player.is_on_ground) {
-		auto offset_y_before = player.offset_y - player.height / 2;
-		auto offset_y_after = offset_y_before + player.acc_y;
-		auto x_left = (float)(player.offset_x - player.width / 2);
-		auto x_right = (float)(player.offset_x + player.width / 2);
+	player.v_x = 0;
+
+	if (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS) {
+		player.v_x = -1;
+	}
+
+	if (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS) {
+		player.v_x = 1;
+	}
+
+	auto get_collision_line_segment = [&line_segments](Entity& entity, int y_before, int y_after) {
+		auto x_left = (float)(entity.offset_x - entity.width / 2);
+		auto x_right = (float)(entity.offset_x + entity.width / 2);
+		Line_segment* cur_line_segment = nullptr;
 
 		for (auto& line_segment : line_segments) {
 			auto line_x_min = std::min(line_segment.x_start, line_segment.x_end);
@@ -92,20 +106,74 @@ void physics(GLFWwindow* window, std::vector<Line_segment>& line_segments, Entit
 			// Assume start/end y is same value
 			auto line_y = line_segment.y_start;
 
-			if ((offset_y_before > line_y) && (offset_y_after <= line_y)) {
-				player.is_on_ground = true;
-				player.offset_y = line_y + player.height / 2;
+			if ((y_before > line_y) && (y_after <= line_y)) {
+				if (cur_line_segment == nullptr) {
+					cur_line_segment = &line_segment;
+				}
+				else if (cur_line_segment->y_start < line_y) {
+					cur_line_segment = &line_segment;
+				}
 			}
 		}
-		if (!player.is_on_ground) {
-			player.offset_y += player.acc_y;
-			player.acc_y -= 1;
+
+		return cur_line_segment;
+		};
+
+	auto apply_gravity = [&get_collision_line_segment](Entity& entity) {
+		Line_segment* line_segment_collision = nullptr;
+
+		if (!entity.is_on_ground) {
+			if (entity.v_y < 0) {
+				line_segment_collision = get_collision_line_segment(entity, entity.offset_y - entity.height / 2 + 2, entity.offset_y - entity.height / 2 + entity.v_y);
+			}
+		}
+		else {
+			line_segment_collision = get_collision_line_segment(entity, entity.offset_y - entity.height / 2 + 2, entity.offset_y - entity.height / 2 - 1);
 		}
 
+		if (line_segment_collision) {
+			entity.offset_y = line_segment_collision->y_start + entity.height / 2;
+			entity.is_on_ground = true;
+			entity.v_y = 0;
+		}
+		else {
+			if (entity.is_on_ground) {
+				entity.v_y = -1;
+				entity.is_on_ground = false;
+			}
+		}
+
+		if (!entity.is_on_ground) {
+			entity.offset_y += entity.v_y;
+			entity.v_y -= 1;
+		}
+		};
+
+	struct Hit_info {
+		bool hit_wall = false;
+	};
+
+	auto apply_movement = [&max_x](Entity& entity) {
+		auto offset_x_before = entity.offset_x;
+		entity.offset_x = std::clamp(entity.offset_x + entity.v_x, -max_x, max_x);
+		auto hit_wall = (entity.offset_x == offset_x_before) && (entity.v_x != 0);
+
+		return Hit_info{ hit_wall };
+		};
+
+	apply_gravity(player);
+	apply_movement(player);
+
+	for (auto& barrel : barrels) {
+		apply_gravity(barrel);
+		auto hit_info = apply_movement(barrel);
+		if (hit_info.hit_wall) {
+			barrel.v_x = -barrel.v_x;
+		}
 	}
 
 	if (player.is_on_ground && glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS) {
-		player.acc_y = 7;
+		player.v_y = 6;
 		player.is_on_ground = false;
 	}
 }
@@ -146,12 +214,6 @@ int main() {
 	glDeleteShader(vertexShader);
 	glDeleteShader(fragmentShader);
 
-	// Vertex setup
-	GLuint VBO, VAO, EBO;
-	glGenVertexArrays(1, &VAO);
-	glGenBuffers(1, &VBO);
-	glGenBuffers(1, &EBO);
-
 	auto player = Entity();
 
 	player.offset_x = 0;
@@ -159,23 +221,47 @@ int main() {
 	player.width = 8;
 	player.height = 8;
 
-	std::vector<float> vertices_player = {
-		-player.width/2.0f, -player.height / 2.0f,
+	auto vertices_entity_8x8 = std::vector<float>{
+		-player.width / 2.0f, -player.height / 2.0f,
 		-player.width / 2.0f, player.height / 2.0f,
 		player.width / 2.0f, player.height / 2.0f,
 		player.width / 2.0f, -player.height / 2.0f
 	};
 
-	std::vector<int> indices_player = {
+	auto indices_entity_8x8 = std::vector<int>{
 		0,1,2,
 		2,3,0
 	};
 
-	glBindVertexArray(VAO);
-	glBindBuffer(GL_ARRAY_BUFFER, VBO);
-	glBufferData(GL_ARRAY_BUFFER, sizeof(vertices_player), vertices_player.data(), GL_STATIC_DRAW);
-	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
-	glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices_player), indices_player.data(), GL_STATIC_DRAW);
+	struct Buffer_info {
+		GLuint vao;
+		GLuint vbo;
+		GLuint ebo;
+	};
+
+	auto buffer_info_player = Buffer_info();
+
+	glGenVertexArrays(1, &buffer_info_player.vao);
+	glGenBuffers(1, &buffer_info_player.vbo);
+	glGenBuffers(1, &buffer_info_player.ebo);
+	glBindVertexArray(buffer_info_player.vao);
+	glBindBuffer(GL_ARRAY_BUFFER, buffer_info_player.vbo);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(vertices_entity_8x8), vertices_entity_8x8.data(), GL_STATIC_DRAW);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, buffer_info_player.ebo);
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices_entity_8x8), indices_entity_8x8.data(), GL_STATIC_DRAW);
+	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
+	glEnableVertexAttribArray(0);
+
+	auto buffer_info_barrel = Buffer_info();
+
+	glGenVertexArrays(1, &buffer_info_barrel.vao);
+	glGenBuffers(1, &buffer_info_barrel.vbo);
+	glGenBuffers(1, &buffer_info_barrel.ebo);
+	glBindVertexArray(buffer_info_barrel.vao);
+	glBindBuffer(GL_ARRAY_BUFFER, buffer_info_barrel.vbo);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(vertices_entity_8x8), vertices_entity_8x8.data(), GL_STATIC_DRAW);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, buffer_info_barrel.ebo);
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices_entity_8x8), indices_entity_8x8.data(), GL_STATIC_DRAW);
 	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
 	glEnableVertexAttribArray(0);
 
@@ -211,13 +297,6 @@ int main() {
 
 	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
 	glEnableVertexAttribArray(0);
-
-
-	struct Buffer_info {
-		GLuint vao;
-		GLuint vbo;
-		GLuint ebo;
-	};
 
 	auto buffer_info_lines = Buffer_info();
 	std::vector<Line_segment> line_segments = {};
@@ -276,34 +355,47 @@ int main() {
 	glUniformMatrix4fv(projectionLoc, 1, GL_FALSE, glm::value_ptr(projection));
 
 	auto barrels = std::vector<Entity>();
-
-	auto physics_update_rate_s = 1.0f / 30;
+	auto physics_update_rate_s = 1.0 / 30;
 	auto time_last_physics = glfwGetTime();
+	auto num_physics_steps = 0;
 
 	while (!glfwWindowShouldClose(window)) {
 		processInput(window);
 		auto cur_time = glfwGetTime();
 
 		if ((cur_time - time_last_physics) > physics_update_rate_s) {
-			physics(window, line_segments, player, barrels);
+			physics(window, num_physics_steps, line_segments, player, barrels);
 			time_last_physics = cur_time;
+			num_physics_steps++;
 		}
 
+		// Background
 		glClearColor(0.1f, 0.1f, 0.15f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT);
 
+		// Game background
 		glUniform2f(offsetLoc, 0.0f, 0.0f);
 		glUniform4f(colorLoc, 0.0f, 0.0f, 0.0f, 1.0f);
 		glBindVertexArray(bgVAO);
 		glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 
+		// Lines
 		glUniform4f(colorLoc, 240.0f / 255, 82.0f / 255, 156.0f / 255, 1.0f);
 		glBindVertexArray(buffer_info_lines.vao);
 		glDrawArrays(GL_LINES, 0, line_segments.size() * sizeof(line_segments[0]));
 
+		// Barrels
+		for (auto& barrel : barrels) {
+			glUniform2f(offsetLoc, barrel.offset_x, barrel.offset_y);
+			glUniform4f(colorLoc, 0.7f, 0.4f, 0.4f, 1.0f);
+			glBindVertexArray(buffer_info_barrel.vao);
+			glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+		}
+
+		// Player
 		glUniform2f(offsetLoc, player.offset_x, player.offset_y);
 		glUniform4f(colorLoc, 0.2f, 0.4f, 1.0f, 1.0f);
-		glBindVertexArray(VAO);
+		glBindVertexArray(buffer_info_player.vao);
 		glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 
 		glfwSwapBuffers(window);

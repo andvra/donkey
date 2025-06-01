@@ -69,7 +69,7 @@ void spawn_barrel(std::vector<Entity>& barrels) {
 	barrels.push_back(barrel);
 }
 
-void physics(GLFWwindow* window, int num_steps, std::vector<Line_segment>& line_segments, Player& player, std::vector<Entity>& barrels) {
+void physics(GLFWwindow* window, int num_steps, std::vector<Line_segment>& line_segments, std::vector<Player>& players, std::vector<Entity>& barrels) {
 	auto max_x = 14 * 8;
 	auto max_y = 16 * 8;
 
@@ -151,8 +151,10 @@ void physics(GLFWwindow* window, int num_steps, std::vector<Line_segment>& line_
 		return Hit_info{ hit_wall };
 		};
 
-	apply_gravity(player);
-	apply_movement(player);
+	for (auto& player : players) {
+		apply_gravity(player);
+		apply_movement(player);
+	}
 
 	for (auto& barrel : barrels) {
 		apply_gravity(barrel);
@@ -194,46 +196,54 @@ void brain_human(GLFWwindow* window, Player& player) {
 	}
 }
 
-void brain_machine(GLFWwindow* window, std::vector<Line_segment>& line_segments, Player& player, std::vector<Entity>& barrels) {
+void brain_machine(GLFWwindow* window, std::vector<Line_segment>& line_segments, std::vector<Player>& players, std::vector<Entity>& barrels) {
 	if (barrels.empty()) {
 		return;
 	}
 
-	Entity* barrel_closest_above = nullptr;
-	auto diff_y_closest_above = std::numeric_limits<int>::max();
+	for (auto& player : players) {
+		Entity* barrel_closest_above = nullptr;
+		auto diff_y_closest_above = std::numeric_limits<int>::max();
 
-	for (auto& barrel : barrels) {
-		auto diff_y_current = barrel.offset_y - player.offset_y;
+		for (auto& barrel : barrels) {
+			auto diff_y_current = barrel.offset_y - player.offset_y;
 
-		if ((diff_y_current >= 0) && (diff_y_current < diff_y_closest_above)) {
-			diff_y_closest_above = diff_y_current;
-			barrel_closest_above = &barrel;
+			if ((diff_y_current >= 0) && (diff_y_current < diff_y_closest_above)) {
+				diff_y_closest_above = diff_y_current;
+				barrel_closest_above = &barrel;
+			}
 		}
-	}
 
-	if (barrel_closest_above) {
-		auto is_close_x = (std::abs(barrel_closest_above->offset_x - player.offset_x) < 12);
-		auto is_close_y = (std::abs(barrel_closest_above->offset_y - player.offset_y) < 12);
+		if (barrel_closest_above) {
+			auto is_close_x = (std::abs(barrel_closest_above->offset_x - player.offset_x) < 12);
+			auto is_close_y = (std::abs(barrel_closest_above->offset_y - player.offset_y) < 12);
 
-		if (is_close_x && is_close_y) {
-			jump(player);
+			if (is_close_x && is_close_y) {
+				jump(player);
+			}
 		}
-	}
 
-	Line_segment* line_segment_closest_better = nullptr;
+		Line_segment* line_segment_closest_better = nullptr;
 
-	for (auto& line_segment : line_segments) {
+		for (auto& line_segment : line_segments) {
+		}
 	}
 }
 
-void brain(GLFWwindow* window, std::vector<Line_segment>& line_segments, Player& player, std::vector<Entity>& barrels, bool is_human) {
-	player.v_x = 0;
+void brain(GLFWwindow* window, std::vector<Line_segment>& line_segments, std::vector<Player>& players, std::vector<Entity>& barrels, bool is_human) {
+	if (players.empty()) {
+		return;
+	}
+
+	for (auto& player : players) {
+		player.v_x = 0;
+	}
 
 	if (is_human) {
-		brain_human(window, player);
+		brain_human(window, players[0]);
 	}
 	else {
-		brain_machine(window, line_segments, player, barrels);
+		brain_machine(window, line_segments, players, barrels);
 	}
 }
 
@@ -273,18 +283,22 @@ int main() {
 	glDeleteShader(vertexShader);
 	glDeleteShader(fragmentShader);
 
-	auto player = Player();
+	auto player_width = 8;
+	auto player_height = 8;
 
-	player.offset_x = 0;
-	player.offset_y = -50;
-	player.width = 8;
-	player.height = 8;
+	auto players = std::vector<Player>();
+	auto player_initial = Player();
+	player_initial.offset_x = 0;
+	player_initial.offset_y = -50;
+	player_initial.width = player_width;
+	player_initial.height = player_height;
+	players.push_back(player_initial);
 
 	auto vertices_entity_8x8 = std::vector<float>{
-		-player.width / 2.0f, -player.height / 2.0f,
-		-player.width / 2.0f, player.height / 2.0f,
-		player.width / 2.0f, player.height / 2.0f,
-		player.width / 2.0f, -player.height / 2.0f
+		-player_width / 2.0f, -player_height / 2.0f,
+		-player_width / 2.0f, player_height / 2.0f,
+		player_width / 2.0f, player_height / 2.0f,
+		player_width / 2.0f, -player_height / 2.0f
 	};
 
 	auto indices_entity_8x8 = std::vector<int>{
@@ -417,15 +431,15 @@ int main() {
 	auto physics_update_rate_s = 1.0 / 30;
 	auto time_last_physics = glfwGetTime();
 	auto num_physics_steps = 0;
-	auto is_human = false;
+	auto is_human = true;
 
 	while (!glfwWindowShouldClose(window)) {
 		processInput(window);
 		auto cur_time = glfwGetTime();
 
 		if ((cur_time - time_last_physics) > physics_update_rate_s) {
-			brain(window, line_segments, player, barrels, is_human);
-			physics(window, num_physics_steps, line_segments, player, barrels);
+			brain(window, line_segments, players, barrels, is_human);
+			physics(window, num_physics_steps, line_segments, players, barrels);
 			time_last_physics = cur_time;
 			num_physics_steps++;
 		}
@@ -453,11 +467,13 @@ int main() {
 			glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 		}
 
-		// Player
-		glUniform2f(offsetLoc, player.offset_x, player.offset_y);
-		glUniform4f(colorLoc, 0.2f, 0.4f, 1.0f, 1.0f);
-		glBindVertexArray(buffer_info_player.vao);
-		glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+		// Players
+		for (auto& player : players) {
+			glUniform2f(offsetLoc, player.offset_x, player.offset_y);
+			glUniform4f(colorLoc, 0.2f, 0.4f, 1.0f, 1.0f);
+			glBindVertexArray(buffer_info_player.vao);
+			glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+		}
 
 		glfwSwapBuffers(window);
 		glfwPollEvents();

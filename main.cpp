@@ -431,6 +431,8 @@ int main() {
 		(1.0f / scale) * -window_height / 2.0f,
 		(1.0f / scale) * window_height / 2.0f
 	);
+
+	// Turns our coordinate system into pixel coordinats with window center as origin
 	glUniformMatrix4fv(projectionLoc, 1, GL_FALSE, glm::value_ptr(projection));
 
 	auto barrels = std::vector<Entity>();

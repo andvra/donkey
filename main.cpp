@@ -30,10 +30,6 @@ const char* fragmentShaderSource = R"glsl(
 )glsl";
 
 void processInput(GLFWwindow* window) {
-	//if (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS) offsetX -= 1.0f;
-	//if (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS) offsetX += 1.0f;
-	//if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS) offsetY += 1.0f;
-	//if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS) offsetY -= 1.0f;
 	if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
 		glfwSetWindowShouldClose(window, true);
 	}
@@ -75,16 +71,6 @@ void physics(GLFWwindow* window, int num_steps, std::vector<Line_segment>& line_
 
 	if (num_steps % 100 == 0) {
 		spawn_barrel(barrels);
-	}
-
-	player.v_x = 0;
-
-	if (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS) {
-		player.v_x = -1;
-	}
-
-	if (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS) {
-		player.v_x = 1;
 	}
 
 	auto get_collision_line_segment = [&line_segments](Entity& entity, int y_before, int y_after) {
@@ -170,6 +156,18 @@ void physics(GLFWwindow* window, int num_steps, std::vector<Line_segment>& line_
 		if (hit_info.hit_wall) {
 			barrel.v_x = -barrel.v_x;
 		}
+	}
+}
+
+void brain(GLFWwindow* window, Entity& player) {
+	player.v_x = 0;
+
+	if (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS) {
+		player.v_x = -1;
+	}
+
+	if (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS) {
+		player.v_x = 1;
 	}
 
 	if (player.is_on_ground && glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS) {
@@ -364,6 +362,7 @@ int main() {
 		auto cur_time = glfwGetTime();
 
 		if ((cur_time - time_last_physics) > physics_update_rate_s) {
+			brain(window, player);
 			physics(window, num_physics_steps, line_segments, player, barrels);
 			time_last_physics = cur_time;
 			num_physics_steps++;

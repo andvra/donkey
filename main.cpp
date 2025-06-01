@@ -283,16 +283,22 @@ int main() {
 	glDeleteShader(vertexShader);
 	glDeleteShader(fragmentShader);
 
+	auto is_human = false;
+	auto num_agents = 100;
 	auto player_width = 8;
 	auto player_height = 8;
 
 	auto players = std::vector<Player>();
-	auto player_initial = Player();
-	player_initial.offset_x = 0;
-	player_initial.offset_y = -50;
-	player_initial.width = player_width;
-	player_initial.height = player_height;
-	players.push_back(player_initial);
+
+	auto num_players = is_human ? 1 : num_agents;
+	for (auto idx_player = 0; idx_player < num_players; idx_player++) {
+		auto player = Player();
+		player.offset_x = rand() % 200 - 100;
+		player.offset_y = rand() % 100 - 50;
+		player.width = player_width;
+		player.height = player_height;
+		players.push_back(player);
+	}
 
 	auto vertices_entity_8x8 = std::vector<float>{
 		-player_width / 2.0f, -player_height / 2.0f,
@@ -431,7 +437,6 @@ int main() {
 	auto physics_update_rate_s = 1.0 / 30;
 	auto time_last_physics = glfwGetTime();
 	auto num_physics_steps = 0;
-	auto is_human = true;
 
 	while (!glfwWindowShouldClose(window)) {
 		processInput(window);

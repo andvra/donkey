@@ -69,12 +69,8 @@ void spawn_barrel(std::vector<Entity>& barrels) {
 	barrels.push_back(barrel);
 }
 
-void physics(int num_steps, std::vector<Line_segment>& line_segments, std::vector<Player>& players, std::vector<Entity>& barrels) {
+void physics(std::vector<Line_segment>& line_segments, std::vector<Player>& players, std::vector<Entity>& barrels) {
 	auto max_x = 14 * 8;
-
-	if (num_steps % 100 == 0) {
-		spawn_barrel(barrels);
-	}
 
 	auto get_collision_line_segment = [&line_segments](Entity& entity, int y_before, int y_after) {
 		auto x_left = entity.offset_x - entity.width / 2;
@@ -246,6 +242,12 @@ void brain(GLFWwindow* window, std::vector<Line_segment>& line_segments, std::ve
 	}
 }
 
+void game_logics(int num_physics_steps, std::vector<Entity>& barrels) {
+	if (num_physics_steps % 100 == 0) {
+		spawn_barrel(barrels);
+	}
+}
+
 int main() {
 	auto window_width = 800 * 2;
 	auto window_height = 600 * 2;
@@ -282,7 +284,7 @@ int main() {
 	glDeleteShader(vertexShader);
 	glDeleteShader(fragmentShader);
 
-	auto is_human = true;
+	auto is_human = false;
 	auto num_agents = 100;
 	auto player_width = 8;
 	auto player_height = 8;
@@ -424,7 +426,8 @@ int main() {
 	int projectionLoc = glGetUniformLocation(shaderProgram, "uProjection");
 
 	auto scale = 4.0f;
-	glm::mat4 projection = glm::ortho(
+
+	auto projection = (glm::mat4)glm::ortho(
 		(1.0f / scale) * -window_width / 2.0f,
 		(1.0f / scale) * window_width / 2.0f,
 		(1.0f / scale) * -window_height / 2.0f,
@@ -435,17 +438,20 @@ int main() {
 	glUniformMatrix4fv(projectionLoc, 1, GL_FALSE, glm::value_ptr(projection));
 
 	auto barrels = std::vector<Entity>();
-	auto physics_update_rate_s = 1.0 / 30;
+	auto physics_update_rate_s = 1 / 120.0;// 1.0 / 30;
 	auto time_last_physics = glfwGetTime();
 	auto num_physics_steps = 0;
+	auto time_last_fps = glfwGetTime();
+	auto num_frames_since_last_update = 0;
 
 	while (!glfwWindowShouldClose(window)) {
 		processInput(window);
 		auto cur_time = glfwGetTime();
 
 		while ((cur_time - time_last_physics) > physics_update_rate_s) {
+			game_logics(num_physics_steps, barrels);
 			brain(window, line_segments, players, barrels, is_human);
-			physics(num_physics_steps, line_segments, players, barrels);
+			physics(line_segments, players, barrels);
 			time_last_physics += physics_update_rate_s;
 			num_physics_steps++;
 		}
@@ -479,6 +485,16 @@ int main() {
 			glUniform4f(colorLoc, 0.2f, 0.4f, 1.0f, 1.0f);
 			glBindVertexArray(buffer_info_player.vao);
 			glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+		}
+
+		// FPS
+		auto time_since_last_fps = cur_time - time_last_fps;
+		num_frames_since_last_update++;
+
+		if (time_since_last_fps > 1.0) {
+			std::cout << num_frames_since_last_update / time_since_last_fps << std::endl;
+			time_last_fps = cur_time;
+			num_frames_since_last_update = 0;
 		}
 
 		glfwSwapBuffers(window);

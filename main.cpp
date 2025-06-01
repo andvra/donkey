@@ -283,7 +283,7 @@ int main() {
 	glDeleteShader(vertexShader);
 	glDeleteShader(fragmentShader);
 
-	auto is_human = false;
+	auto is_human = true;
 	auto num_agents = 100;
 	auto player_width = 8;
 	auto player_height = 8;
@@ -442,10 +442,10 @@ int main() {
 		processInput(window);
 		auto cur_time = glfwGetTime();
 
-		if ((cur_time - time_last_physics) > physics_update_rate_s) {
+		while ((cur_time - time_last_physics) > physics_update_rate_s) {
 			brain(window, line_segments, players, barrels, is_human);
 			physics(window, num_physics_steps, line_segments, players, barrels);
-			time_last_physics = cur_time;
+			time_last_physics += physics_update_rate_s;
 			num_physics_steps++;
 		}
 

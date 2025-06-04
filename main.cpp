@@ -8,6 +8,93 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
+const int INPUT_SIZE = 8;
+const int HIDDEN_SIZE = 5;
+const int OUTPUT_SIZE = 3;
+const int WEIGHT_COUNT = (INPUT_SIZE * HIDDEN_SIZE) + (HIDDEN_SIZE * OUTPUT_SIZE); // No biases for simplicity
+const int POP_SIZE = 500;
+const int GENERATIONS = 100;
+const float MUTATION_RATE = 0.1f;
+const float MUTATION_STDDEV = 0.2f;
+const int SIM_STEPS = 20;
+
+enum Action { LEFT = 0, RIGHT = 1, JUMP = 2 };
+
+struct NeuralNet {
+	static Action forward(const std::vector<float>& weights, float is_on_ground, float agent_x, float agent_y, float level, float distance_closest_barrel_x, float distance_closest_barrel_y, float distance_ceiling) {
+		float input[INPUT_SIZE] = { is_on_ground, agent_x, agent_y, level, distance_closest_barrel_x, distance_closest_barrel_y, distance_ceiling };
+
+		// Hidden layer
+		float hidden[HIDDEN_SIZE];
+		for (int i = 0; i < HIDDEN_SIZE; ++i) {
+			hidden[i] = 0.0f;
+			for (int j = 0; j < INPUT_SIZE; ++j) {
+				hidden[i] += input[j] * weights[j * HIDDEN_SIZE + i];
+			}
+			hidden[i] = std::tanh(hidden[i]); // activation
+		}
+
+		// Output layer
+		float output[OUTPUT_SIZE] = { 0 };
+		int offset = INPUT_SIZE * HIDDEN_SIZE;
+		for (int i = 0; i < OUTPUT_SIZE; ++i) {
+			for (int j = 0; j < HIDDEN_SIZE; ++j) {
+				output[i] += hidden[j] * weights[offset + j * OUTPUT_SIZE + i];
+			}
+		}
+
+		// Pick max
+		int best = 0;
+		for (int i = 1; i < OUTPUT_SIZE; ++i) {
+			if (output[i] > output[best]) best = i;
+		}
+
+		return static_cast<Action>(best);
+	}
+};
+
+struct Genome {
+	std::vector<float> weights;
+	float fitness;
+
+	Genome() : weights(WEIGHT_COUNT), fitness(0.0f) {
+		for (auto& w : weights) w = ((rand() / (float)RAND_MAX) * 2.0f - 1.0f); // [-1, 1]
+	}
+};
+
+//float evaluate_fitness(const Genome& g) {
+//	NeuralNet nn(g.weights);
+//	float agent_x = 0.0f;
+//	float goal_x = 10.0f;
+//
+//	for (int t = 0; t < SIM_STEPS; ++t) {
+//		Action a = nn.forward(agent_x, goal_x);
+//		switch (a) {
+//		case LEFT:  agent_x -= 1.0f; break;
+//		case RIGHT: agent_x += 1.0f; break;
+//		case JUMP:  break; // does nothing for now
+//		}
+//	}
+//
+//	float distance = std::abs(goal_x - agent_x);
+//	return -distance; // Closer is better (higher fitness)
+//}
+
+Genome crossover(const Genome& a, const Genome& b) {
+	Genome child;
+	for (int i = 0; i < WEIGHT_COUNT; ++i) {
+		child.weights[i] = (rand() % 2 == 0) ? a.weights[i] : b.weights[i];
+	}
+	return child;
+}
+
+void mutate(Genome& g) {
+	for (float& w : g.weights) {
+		if ((rand() / (float)RAND_MAX) < MUTATION_RATE)
+			w += ((rand() / (float)RAND_MAX) * 2.0f - 1.0f) * MUTATION_STDDEV; // small tweak
+	}
+}
+
 const char* vertexShaderSource = R"glsl(
     #version 330 core
     layout (location = 0) in vec2 aPos;
@@ -43,11 +130,13 @@ struct Entity {
 	int v_x = {};
 	int v_y = {};
 	bool is_on_ground = false;
+	int level = 0;
 };
 
 struct Player : public Entity {
 	int score = 0;
 	bool alive = false;
+	int dead_at_step = 0;
 };
 
 struct Line_segment {
@@ -70,7 +159,7 @@ void spawn_barrel(std::vector<Entity>& barrels) {
 	barrels.push_back(barrel);
 }
 
-void physics(std::vector<Line_segment>& line_segments, std::vector<Player>& players, std::vector<Entity>& barrels) {
+void physics(int num_physics_steps, std::vector<Line_segment>& line_segments, std::vector<Player>& players, std::vector<Entity>& barrels) {
 	auto max_x = 14 * 8;
 
 	auto get_collision_line_segment = [&line_segments](Entity& entity, int y_before, int y_after) {
@@ -121,6 +210,23 @@ void physics(std::vector<Line_segment>& line_segments, std::vector<Player>& play
 			entity.offset_y = line_segment_collision->y_start + entity.height / 2;
 			entity.is_on_ground = true;
 			entity.v_y = 0;
+			entity.level = 0;
+
+			if (entity.offset_y >= -92) {
+				entity.level = 1;
+			}
+			if (entity.offset_y >= -57) {
+				entity.level = 2;
+			}
+			if (entity.offset_y >= -26) {
+				entity.level = 3;
+			}
+			if (entity.offset_y >= 6) {
+				entity.level = 4;
+			}
+			if (entity.offset_y >= 39) {
+				entity.level = 5;
+			}
 		}
 		else {
 			if (entity.is_on_ground) {
@@ -148,6 +254,9 @@ void physics(std::vector<Line_segment>& line_segments, std::vector<Player>& play
 		};
 
 	for (auto& player : players) {
+		if (!player.alive) {
+			continue;
+		}
 		apply_gravity(player);
 		apply_movement(player);
 	}
@@ -161,6 +270,13 @@ void physics(std::vector<Line_segment>& line_segments, std::vector<Player>& play
 	}
 
 	for (auto& player : players) {
+		if (!player.alive) {
+			continue;
+		}
+		if (!player.is_on_ground) {
+			// TODO: Think we should always be alive if we are in the air?
+			continue;
+		}
 		for (auto& barrel : barrels) {
 			auto ok1 = player.offset_x <= (barrel.offset_x + barrel.width / 2);
 			auto ok2 = player.offset_x >= (barrel.offset_x - barrel.width / 2);
@@ -168,6 +284,10 @@ void physics(std::vector<Line_segment>& line_segments, std::vector<Player>& play
 			auto ok4 = player.offset_y >= (barrel.offset_y - barrel.height / 2);
 			if (ok1 && ok2 && ok3 && ok4) {
 				player.alive = false;
+				player.dead_at_step = num_physics_steps;
+				// TODO: We assume the last line segment is the one at the bottom!
+				player.score = player.offset_y - line_segments.back().y_end;
+				break;
 			}
 		}
 	}
@@ -190,7 +310,7 @@ void move_right(Player& player) {
 	player.v_x = 1;
 }
 
-void brain_human(GLFWwindow* window, Player& player) {
+void brain_run_human(GLFWwindow* window, Player& player) {
 	if (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS) {
 		move_left(player);
 	}
@@ -204,11 +324,18 @@ void brain_human(GLFWwindow* window, Player& player) {
 	}
 }
 
-void brain_machine(std::vector<Line_segment>& line_segments, std::vector<Player>& players, std::vector<Entity>& barrels) {
-	for (auto& player : players) {
+std::vector<Genome> population(POP_SIZE);
+
+void brain_run_machine(std::vector<Line_segment>& line_segments, std::vector<Player>& players, std::vector<Entity>& barrels) {
+	for (auto idx_player = 0; idx_player < players.size();idx_player++) {
+		auto& player = players[idx_player];
+		auto& genome = population[idx_player];
+
 		Entity* barrel_closest_above = nullptr;
 		auto diff_y_closest_above = std::numeric_limits<int>::max();
 
+		// TODO: Here another barrel is suddenly picked if we are in the air!
+		//	That feels a bit off. Maybe check if we are on the same level instead
 		for (auto& barrel : barrels) {
 			auto diff_y_current = barrel.offset_y - player.offset_y;
 
@@ -218,14 +345,57 @@ void brain_machine(std::vector<Line_segment>& line_segments, std::vector<Player>
 			}
 		}
 
-		if (barrel_closest_above) {
-			auto is_close_x = (std::abs(barrel_closest_above->offset_x - player.offset_x) < 12);
-			auto is_close_y = (std::abs(barrel_closest_above->offset_y - player.offset_y) < 12);
+		auto distance_closest_barrel_x = 100.0f;
+		auto distance_closest_barrel_y = 100.0f;
+		auto distance_ceiling = 100.0f;
+		auto level = (float)player.level;
 
-			if (is_close_x && is_close_y) {
-				jump(player);
+		for (auto& line_segment : line_segments) {
+			if (line_segment.y_start < player.offset_y) {
+				continue;
+			}
+			auto ok1 = line_segment.x_start <= player.offset_x + player.width / 2;
+			auto ok2 = line_segment.x_end >= player.offset_x - player.width / 2;
+			if (ok1 && ok2) {
+				auto cur_distance_ceiling = (float)(line_segment.y_start - player.offset_y);
+				if (cur_distance_ceiling < distance_ceiling) {
+					distance_ceiling = cur_distance_ceiling;
+				}
 			}
 		}
+
+
+		if (barrel_closest_above) {
+			distance_closest_barrel_x = (float)barrel_closest_above->offset_x;
+			distance_closest_barrel_y = (float)barrel_closest_above->offset_y;
+		}
+
+		auto is_on_ground = (player.is_on_ground ? 1.0f : 0.0f);
+
+		// Normalizing
+		auto player_offset_x = player.offset_x / 100.0f;
+		auto player_offset_y = player.offset_y / 100.0f;
+		level /= 5;
+		distance_closest_barrel_x /= 100.0f;
+		distance_closest_barrel_y /= 100.0f;
+		distance_ceiling /= 100.0f;
+
+		auto action = NeuralNet::forward(genome.weights, is_on_ground, player_offset_x, player_offset_y, level, distance_closest_barrel_x, distance_closest_barrel_y, distance_ceiling);
+
+		switch (action) {
+		case Action::JUMP: jump(player); break;
+		case Action::LEFT: move_left(player); break;
+		case Action::RIGHT: move_right(player); break;
+		}
+
+		//if (barrel_closest_above) {
+		//	auto is_close_x = (std::abs(barrel_closest_above->offset_x - player.offset_x) < 12);
+		//	auto is_close_y = (std::abs(barrel_closest_above->offset_y - player.offset_y) < 12);
+
+		//	if (is_close_x && is_close_y) {
+		//		jump(player);
+		//	}
+		//}
 		line_segments;
 		//Line_segment* line_segment_closest_better = nullptr;
 
@@ -234,7 +404,7 @@ void brain_machine(std::vector<Line_segment>& line_segments, std::vector<Player>
 	}
 }
 
-void brain(GLFWwindow* window, std::vector<Line_segment>& line_segments, std::vector<Player>& players, std::vector<Entity>& barrels, bool is_human) {
+void brain_run(GLFWwindow* window, std::vector<Line_segment>& line_segments, std::vector<Player>& players, std::vector<Entity>& barrels, bool is_human) {
 	if (players.empty()) {
 		return;
 	}
@@ -244,16 +414,81 @@ void brain(GLFWwindow* window, std::vector<Line_segment>& line_segments, std::ve
 	}
 
 	if (is_human) {
-		brain_human(window, players[0]);
+		brain_run_human(window, players[0]);
 	}
 	else {
-		brain_machine(line_segments, players, barrels);
+		brain_run_machine(line_segments, players, barrels);
 	}
+}
+
+void brain_update(const std::vector<Player>& players) {
+	for (auto idx_agent = 0; idx_agent < POP_SIZE; idx_agent++) {
+		population[idx_agent].fitness = (float)players[idx_agent].score;
+	}
+
+	std::sort(population.begin(), population.end(), [](const Genome& genome1, const Genome& genome2) {return genome1.fitness > genome2.fitness; });
+
+	std::vector<Genome> new_pop;
+	int elites = POP_SIZE / 20;
+	new_pop.insert(new_pop.end(), population.begin(), population.begin() + elites);
+
+	while (new_pop.size() < POP_SIZE) {
+		const Genome& p1 = population[rand() % elites];
+		const Genome& p2 = population[rand() % elites];
+		Genome child = crossover(p1, p2);
+		mutate(child);
+		new_pop.push_back(child);
+	}
+
+	population = new_pop;
 }
 
 void game_logics(int num_physics_steps, std::vector<Entity>& barrels) {
 	if (num_physics_steps % 100 == 0) {
 		spawn_barrel(barrels);
+	}
+}
+
+void init_players(std::vector<Player>& players, bool is_human, int player_width, int player_height) {
+	auto num_agents = POP_SIZE;
+	auto num_players = is_human ? 1 : num_agents;
+
+	players.resize(num_agents);
+
+	for (auto idx_player = 0; idx_player < num_players; idx_player++) {
+		auto player = Player();
+		player.offset_x = -50;
+		player.offset_y = -100;
+		player.width = player_width;
+		player.height = player_height;
+		player.alive = true;
+		players[idx_player] = player;
+	}
+}
+
+void mouse_button_callback(GLFWwindow* window, int button, int action, int)
+{
+	auto window_width = 800 * 2;
+	auto window_height = 600 * 2;
+	auto square_size_pixels = 8;
+	auto num_squares_x = 28;
+	auto num_squares_y = 32;
+	auto board_width = num_squares_x * square_size_pixels;
+	auto board_height = num_squares_y * square_size_pixels;
+	auto scale = 4.0f;
+
+	if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
+		double xpos, ypos;
+		glfwGetCursorPos(window, &xpos, &ypos);
+		xpos -= window_width / 2.0;
+		ypos -= window_height / 2.0;
+		auto ok_x = std::abs(xpos) <= scale * board_width / 2.0;
+		auto ok_y = std::abs(ypos) <= scale * board_height / 2.0;
+		if (ok_x && ok_y) {
+			xpos /= scale;
+			ypos = (-ypos) / scale;
+			std::cout << "x: " << (int)xpos << " y: " << (int)ypos << std::endl;
+		}
 	}
 }
 
@@ -267,6 +502,8 @@ int main() {
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
 	GLFWwindow* window = glfwCreateWindow(window_width, window_height, "Donkey", nullptr, nullptr);
+
+	glfwSetMouseButtonCallback(window, mouse_button_callback);
 
 	if (!window) {
 		std::cerr << "Failed to create GLFW window\n";
@@ -294,23 +531,11 @@ int main() {
 	glDeleteShader(fragmentShader);
 
 	auto is_human = false;
-	auto num_agents = 100;
+	auto players = std::vector<Player>();
 	auto player_width = 8;
 	auto player_height = 8;
 
-	auto players = std::vector<Player>();
-
-	auto num_players = is_human ? 1 : num_agents;
-
-	for (auto idx_player = 0; idx_player < num_players; idx_player++) {
-		auto player = Player();
-		player.offset_x = rand() % 200 - 100;
-		player.offset_y = rand() % 100 - 50;
-		player.width = player_width;
-		player.height = player_height;
-		player.alive = true;
-		players.push_back(player);
-	}
+	init_players(players, is_human, player_width, player_height);
 
 	auto vertices_entity_8x8 = std::vector<float>{
 		-player_width / 2.0f, -player_height / 2.0f,
@@ -449,7 +674,7 @@ int main() {
 	glUniformMatrix4fv(projectionLoc, 1, GL_FALSE, glm::value_ptr(projection));
 
 	auto barrels = std::vector<Entity>();
-	auto physics_update_rate_s = 1 / 120.0;// 1.0 / 30;
+	auto physics_update_rate_s = 1 / 240.0;// 120.0;// 1.0 / 30;
 	auto time_last_physics = glfwGetTime();
 	auto num_physics_steps = 0;
 	auto time_last_fps = glfwGetTime();
@@ -461,8 +686,8 @@ int main() {
 
 		while ((cur_time - time_last_physics) > physics_update_rate_s) {
 			game_logics(num_physics_steps, barrels);
-			brain(window, line_segments, players, barrels, is_human);
-			physics(line_segments, players, barrels);
+			brain_run(window, line_segments, players, barrels, is_human);
+			physics(num_physics_steps, line_segments, players, barrels);
 			time_last_physics += physics_update_rate_s;
 			num_physics_steps++;
 		}
@@ -491,16 +716,56 @@ int main() {
 		}
 
 		// Players
+		auto num_alive = 0;
+
 		for (auto& player : players) {
+			if (!player.alive && ((num_physics_steps - player.dead_at_step) > 500)) {
+				continue;
+			}
 			glUniform2f(offsetLoc, (float)player.offset_x, (float)player.offset_y);
+
+			auto colors = std::vector<glm::vec3>{
+				{0.2f, 0.4f, 1.0f},
+				{0.3f, 0.5f, 0.8f},
+				{0.5f, 0.2f, 0.7f},
+				{0.7f, 0.8f, 0.7f},
+				{0.9f, 0.2f, 0.5f},
+				{0.5f, 0.7f, 0.2f},
+			};
+
+			auto color = colors[player.level];
+
+			if (!player.alive) {
+				color *= 0.5;
+			}
+
+			glUniform4f(colorLoc, color.r, color.g, color.b, 1.0f);
+
 			if (player.alive) {
-			glUniform4f(colorLoc, 0.2f, 0.4f, 1.0f, 1.0f);
+				num_alive++;
 			}
-			else {
-				glUniform4f(colorLoc, 0.1f, 0.2f, 0.5f, 1.0f);
-			}
+
 			glBindVertexArray(buffer_info_player.vao);
 			glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+		}
+
+		// Kill of long-running agents that does not move
+		if (!is_human && (num_physics_steps > 0) && (num_physics_steps % 2000 == 0)) {
+			auto min_level = num_physics_steps / 2000;
+			std::cout << "Killing of agents below level " << min_level << std::endl;
+			for (auto& player : players) {
+				if (player.level < min_level) {
+					player.alive = false;
+				}
+			}
+		}
+
+		// Reset
+		if (num_alive == 0) {
+			brain_update(players);
+			init_players(players, is_human, player_width, player_height);
+			num_physics_steps = 0;
+			barrels.clear();
 		}
 
 		// FPS

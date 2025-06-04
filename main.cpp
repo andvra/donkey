@@ -47,6 +47,7 @@ struct Entity {
 
 struct Player : public Entity {
 	int score = 0;
+	bool alive = false;
 };
 
 struct Line_segment {
@@ -156,6 +157,18 @@ void physics(std::vector<Line_segment>& line_segments, std::vector<Player>& play
 		auto hit_info = apply_movement(barrel);
 		if (hit_info.hit_wall) {
 			barrel.v_x = -barrel.v_x;
+		}
+	}
+
+	for (auto& player : players) {
+		for (auto& barrel : barrels) {
+			auto ok1 = player.offset_x <= (barrel.offset_x + barrel.width / 2);
+			auto ok2 = player.offset_x >= (barrel.offset_x - barrel.width / 2);
+			auto ok3 = player.offset_y <= (barrel.offset_y + barrel.height/ 2);
+			auto ok4 = player.offset_y >= (barrel.offset_y - barrel.height / 2);
+			if (ok1 && ok2 && ok3 && ok4) {
+				player.alive = false;
+			}
 		}
 	}
 }
@@ -288,12 +301,14 @@ int main() {
 	auto players = std::vector<Player>();
 
 	auto num_players = is_human ? 1 : num_agents;
+
 	for (auto idx_player = 0; idx_player < num_players; idx_player++) {
 		auto player = Player();
 		player.offset_x = rand() % 200 - 100;
 		player.offset_y = rand() % 100 - 50;
 		player.width = player_width;
 		player.height = player_height;
+		player.alive = true;
 		players.push_back(player);
 	}
 
@@ -478,7 +493,12 @@ int main() {
 		// Players
 		for (auto& player : players) {
 			glUniform2f(offsetLoc, (float)player.offset_x, (float)player.offset_y);
+			if (player.alive) {
 			glUniform4f(colorLoc, 0.2f, 0.4f, 1.0f, 1.0f);
+			}
+			else {
+				glUniform4f(colorLoc, 0.1f, 0.2f, 0.5f, 1.0f);
+			}
 			glBindVertexArray(buffer_info_player.vao);
 			glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 		}

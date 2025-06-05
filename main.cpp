@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <iostream>
+#include <numbers>
 #include <vector>
 
 #include <glad/glad.h>
@@ -8,8 +9,8 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
-const int INPUT_SIZE = 8;
-const int HIDDEN_SIZE = 5;
+const int INPUT_SIZE = 10;
+const int HIDDEN_SIZE = 2 * INPUT_SIZE;
 const int OUTPUT_SIZE = 3;
 const int WEIGHT_COUNT = (INPUT_SIZE * HIDDEN_SIZE) + (HIDDEN_SIZE * OUTPUT_SIZE); // No biases for simplicity
 const int POP_SIZE = 500;
@@ -21,8 +22,10 @@ const int SIM_STEPS = 20;
 enum Action { LEFT = 0, RIGHT = 1, JUMP = 2 };
 
 struct NeuralNet {
-	static Action forward(const std::vector<float>& weights, float is_on_ground, float agent_x, float agent_y, float level, float distance_closest_barrel_x, float distance_closest_barrel_y, float distance_ceiling) {
-		float input[INPUT_SIZE] = { is_on_ground, agent_x, agent_y, level, distance_closest_barrel_x, distance_closest_barrel_y, distance_ceiling };
+	static Action forward(
+		const std::vector<float>& weights, float is_on_ground, float agent_x, float agent_y, float level,
+		float barrel_distance_first, float barrel_angle_first, float barrel_distance_second, float barrel_angle_second, float distance_ceiling) {
+		float input[INPUT_SIZE] = { is_on_ground, agent_x, agent_y, level, barrel_distance_first, barrel_angle_first, barrel_distance_second, barrel_angle_second, distance_ceiling };
 
 		// Hidden layer
 		float hidden[HIDDEN_SIZE];
@@ -144,6 +147,18 @@ struct Line_segment {
 	int y_start = {};
 	int x_end = {};
 	int y_end = {};
+};
+
+struct Shader_locations {
+	int offset = {};
+	int color = {};
+	int projection = {};
+};
+
+struct Buffer_info {
+	GLuint vao;
+	GLuint vbo;
+	GLuint ebo;
 };
 
 void spawn_barrel(std::vector<Entity>& barrels) {
@@ -280,12 +295,13 @@ void physics(int num_physics_steps, std::vector<Line_segment>& line_segments, st
 		for (auto& barrel : barrels) {
 			auto ok1 = player.offset_x <= (barrel.offset_x + barrel.width / 2);
 			auto ok2 = player.offset_x >= (barrel.offset_x - barrel.width / 2);
-			auto ok3 = player.offset_y <= (barrel.offset_y + barrel.height/ 2);
+			auto ok3 = player.offset_y <= (barrel.offset_y + barrel.height / 2);
 			auto ok4 = player.offset_y >= (barrel.offset_y - barrel.height / 2);
 			if (ok1 && ok2 && ok3 && ok4) {
 				player.alive = false;
 				player.dead_at_step = num_physics_steps;
-				// TODO: We assume the last line segment is the one at the bottom!
+				// TODO: We assume the last line segment is the one at the bottom of the board.
+				//	Should be an alright assumption
 				player.score = player.offset_y - line_segments.back().y_end;
 				break;
 			}
@@ -327,26 +343,10 @@ void brain_run_human(GLFWwindow* window, Player& player) {
 std::vector<Genome> population(POP_SIZE);
 
 void brain_run_machine(std::vector<Line_segment>& line_segments, std::vector<Player>& players, std::vector<Entity>& barrels) {
-	for (auto idx_player = 0; idx_player < players.size();idx_player++) {
+	for (auto idx_player = 0; idx_player < players.size(); idx_player++) {
 		auto& player = players[idx_player];
 		auto& genome = population[idx_player];
 
-		Entity* barrel_closest_above = nullptr;
-		auto diff_y_closest_above = std::numeric_limits<int>::max();
-
-		// TODO: Here another barrel is suddenly picked if we are in the air!
-		//	That feels a bit off. Maybe check if we are on the same level instead
-		for (auto& barrel : barrels) {
-			auto diff_y_current = barrel.offset_y - player.offset_y;
-
-			if ((diff_y_current >= 0) && (diff_y_current < diff_y_closest_above)) {
-				diff_y_closest_above = diff_y_current;
-				barrel_closest_above = &barrel;
-			}
-		}
-
-		auto distance_closest_barrel_x = 100.0f;
-		auto distance_closest_barrel_y = 100.0f;
 		auto distance_ceiling = 100.0f;
 		auto level = (float)player.level;
 
@@ -354,8 +354,8 @@ void brain_run_machine(std::vector<Line_segment>& line_segments, std::vector<Pla
 			if (line_segment.y_start < player.offset_y) {
 				continue;
 			}
-			auto ok1 = line_segment.x_start <= player.offset_x + player.width / 2;
-			auto ok2 = line_segment.x_end >= player.offset_x - player.width / 2;
+			auto ok1 = (line_segment.x_start <= (player.offset_x + player.width / 2));
+			auto ok2 = (line_segment.x_end >= (player.offset_x - player.width / 2));
 			if (ok1 && ok2) {
 				auto cur_distance_ceiling = (float)(line_segment.y_start - player.offset_y);
 				if (cur_distance_ceiling < distance_ceiling) {
@@ -364,10 +364,31 @@ void brain_run_machine(std::vector<Line_segment>& line_segments, std::vector<Pla
 			}
 		}
 
+		struct Barrel_distance {
+			Entity* barrel = nullptr;
+			float angle = 0.0f;
+			float distance = 0.0f;
+		};
 
-		if (barrel_closest_above) {
-			distance_closest_barrel_x = (float)barrel_closest_above->offset_x;
-			distance_closest_barrel_y = (float)barrel_closest_above->offset_y;
+		auto barrel_distances = std::vector<Barrel_distance>(2);
+
+		for (auto& barrel_distance : barrel_distances) {
+			barrel_distance.distance = 100.0f;
+		}
+
+		auto idx_cur_worst = 0;
+
+		for (auto& barrel : barrels) {
+			auto distance = std::hypotf((float)barrel.offset_x - player.offset_x, (float)barrel.offset_y - player.offset_y);
+
+			if (distance < barrel_distances[idx_cur_worst].distance) {
+				auto angle = std::atan2f((float)barrel.offset_y - player.offset_y, (float)barrel.offset_x - player.offset_x);
+				auto new_barrel_distance = Barrel_distance();
+				new_barrel_distance.angle = angle;
+				new_barrel_distance.distance = distance;
+				new_barrel_distance.barrel = &barrel;
+				barrel_distances[idx_cur_worst] = new_barrel_distance;
+			}
 		}
 
 		auto is_on_ground = (player.is_on_ground ? 1.0f : 0.0f);
@@ -376,31 +397,23 @@ void brain_run_machine(std::vector<Line_segment>& line_segments, std::vector<Pla
 		auto player_offset_x = player.offset_x / 100.0f;
 		auto player_offset_y = player.offset_y / 100.0f;
 		level /= 5;
-		distance_closest_barrel_x /= 100.0f;
-		distance_closest_barrel_y /= 100.0f;
+
+		for (auto& barrel_distance : barrel_distances) {
+			barrel_distance.angle /= std::numbers::pi_v<float>;
+			barrel_distance.distance /= 100.0f;
+		}
+
 		distance_ceiling /= 100.0f;
 
-		auto action = NeuralNet::forward(genome.weights, is_on_ground, player_offset_x, player_offset_y, level, distance_closest_barrel_x, distance_closest_barrel_y, distance_ceiling);
+		// TODO: The two next boxes might be of interest!
+		auto action = NeuralNet::forward(genome.weights, is_on_ground, player_offset_x, player_offset_y, level,
+			barrel_distances[0].distance, barrel_distances[0].angle, barrel_distances[1].distance, barrel_distances[1].angle, distance_ceiling);
 
 		switch (action) {
 		case Action::JUMP: jump(player); break;
 		case Action::LEFT: move_left(player); break;
 		case Action::RIGHT: move_right(player); break;
 		}
-
-		//if (barrel_closest_above) {
-		//	auto is_close_x = (std::abs(barrel_closest_above->offset_x - player.offset_x) < 12);
-		//	auto is_close_y = (std::abs(barrel_closest_above->offset_y - player.offset_y) < 12);
-
-		//	if (is_close_x && is_close_y) {
-		//		jump(player);
-		//	}
-		//}
-		line_segments;
-		//Line_segment* line_segment_closest_better = nullptr;
-
-		//for (auto& line_segment : line_segments) {
-		//}
 	}
 }
 
@@ -422,11 +435,16 @@ void brain_run(GLFWwindow* window, std::vector<Line_segment>& line_segments, std
 }
 
 void brain_update(const std::vector<Player>& players) {
+	static auto best_score_overall = 0.0f;
+
 	for (auto idx_agent = 0; idx_agent < POP_SIZE; idx_agent++) {
 		population[idx_agent].fitness = (float)players[idx_agent].score;
 	}
 
 	std::sort(population.begin(), population.end(), [](const Genome& genome1, const Genome& genome2) {return genome1.fitness > genome2.fitness; });
+
+	best_score_overall = std::max(best_score_overall, population.front().fitness);
+	std::cout << "Best score in generation (best total): " << population.front().fitness << " (" << best_score_overall << ")\n";
 
 	std::vector<Genome> new_pop;
 	int elites = POP_SIZE / 20;
@@ -492,6 +510,60 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int)
 	}
 }
 
+void render(int num_physics_steps, const std::vector<Player>& players, const std::vector<Entity>& barrels, const std::vector<Line_segment>& line_segments, const Shader_locations& shader_locations,
+	const Buffer_info& buffer_info_background, const Buffer_info& buffer_info_player, const Buffer_info& buffer_info_barrel, const Buffer_info& buffer_info_lines) {
+	// Background
+	glClearColor(0.1f, 0.1f, 0.15f, 1.0f);
+	glClear(GL_COLOR_BUFFER_BIT);
+
+	// Game background
+	glUniform2f(shader_locations.offset, 0.0f, 0.0f);
+	glUniform4f(shader_locations.color, 0.0f, 0.0f, 0.0f, 1.0f);
+	glBindVertexArray(buffer_info_background.vao);
+	glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+
+	// Lines
+	glUniform4f(shader_locations.color, 240.0f / 255, 82.0f / 255, 156.0f / 255, 1.0f);
+	glBindVertexArray(buffer_info_lines.vao);
+	glDrawArrays(GL_LINES, 0, (GLsizei)line_segments.size() * sizeof(line_segments[0]));
+
+	// Barrels
+	for (auto& barrel : barrels) {
+		glUniform2f(shader_locations.offset, (float)barrel.offset_x, (float)barrel.offset_y);
+		glUniform4f(shader_locations.color, 0.7f, 0.4f, 0.4f, 1.0f);
+		glBindVertexArray(buffer_info_barrel.vao);
+		glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+	}
+
+	// Players
+	auto static colors = std::vector<glm::vec3>{
+		{0.2f, 0.4f, 1.0f},
+		{0.3f, 0.5f, 0.8f},
+		{0.5f, 0.2f, 0.7f},
+		{0.7f, 0.8f, 0.7f},
+		{0.9f, 0.2f, 0.5f},
+		{0.5f, 0.7f, 0.2f},
+	};
+
+	for (auto& player : players) {
+		if (!player.alive && ((num_physics_steps - player.dead_at_step) > 500)) {
+			continue;
+		}
+
+		glUniform2f(shader_locations.offset, (float)player.offset_x, (float)player.offset_y);
+
+		auto color = colors[player.level];
+
+		if (!player.alive) {
+			color *= 0.5;
+		}
+
+		glUniform4f(shader_locations.color, color.r, color.g, color.b, 1.0f);
+		glBindVertexArray(buffer_info_player.vao);
+		glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+	}
+}
+
 int main() {
 	auto window_width = 800 * 2;
 	auto window_height = 600 * 2;
@@ -549,12 +621,6 @@ int main() {
 		2,3,0
 	};
 
-	struct Buffer_info {
-		GLuint vao;
-		GLuint vbo;
-		GLuint ebo;
-	};
-
 	auto buffer_info_player = Buffer_info();
 
 	glGenVertexArrays(1, &buffer_info_player.vao);
@@ -599,23 +665,24 @@ int main() {
 		2, 3, 0
 	};
 
-	GLuint bgVAO, bgVBO, bgEBO;
-	glGenVertexArrays(1, &bgVAO);
-	glGenBuffers(1, &bgVBO);
-	glGenBuffers(1, &bgEBO);
+	auto buffer_info_background = Buffer_info();
 
-	glBindVertexArray(bgVAO);
-	glBindBuffer(GL_ARRAY_BUFFER, bgVBO);
+	glGenVertexArrays(1, &buffer_info_background.vao);
+	glGenBuffers(1, &buffer_info_background.vbo);
+	glGenBuffers(1, &buffer_info_background.ebo);
+
+	glBindVertexArray(buffer_info_background.vao);
+	glBindBuffer(GL_ARRAY_BUFFER, buffer_info_background.vbo);
 	glBufferData(GL_ARRAY_BUFFER, sizeof(bgVertices), bgVertices, GL_STATIC_DRAW);
 
-	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, bgEBO);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, buffer_info_background.ebo);
 	glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(bgIndices), bgIndices, GL_STATIC_DRAW);
 
 	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
 	glEnableVertexAttribArray(0);
 
 	auto buffer_info_lines = Buffer_info();
-	std::vector<Line_segment> line_segments = {};
+	auto line_segments = std::vector<Line_segment>();
 
 	line_segments.push_back({
 		-3 * 8, 9 * 8,
@@ -657,9 +724,12 @@ int main() {
 	glEnableVertexAttribArray(0);
 
 	glUseProgram(shaderProgram);
-	int offsetLoc = glGetUniformLocation(shaderProgram, "offset");
-	int colorLoc = glGetUniformLocation(shaderProgram, "uColor");
-	int projectionLoc = glGetUniformLocation(shaderProgram, "uProjection");
+
+	auto shader_locations = Shader_locations();
+
+	shader_locations.offset = glGetUniformLocation(shaderProgram, "offset");
+	shader_locations.color = glGetUniformLocation(shaderProgram, "uColor");
+	shader_locations.projection = glGetUniformLocation(shaderProgram, "uProjection");
 
 	auto scale = 4.0f;
 
@@ -671,7 +741,7 @@ int main() {
 	);
 
 	// Turns our coordinate system into pixel coordinats with window center as origin
-	glUniformMatrix4fv(projectionLoc, 1, GL_FALSE, glm::value_ptr(projection));
+	glUniformMatrix4fv(shader_locations.projection, 1, GL_FALSE, glm::value_ptr(projection));
 
 	auto barrels = std::vector<Entity>();
 	auto physics_update_rate_s = 1 / 240.0;// 120.0;// 1.0 / 30;
@@ -679,6 +749,15 @@ int main() {
 	auto num_physics_steps = 0;
 	auto time_last_fps = glfwGetTime();
 	auto num_frames_since_last_update = 0;
+	auto pos_previous_x = std::vector<int>(POP_SIZE);
+	auto pos_previous_y = std::vector<int>(POP_SIZE);
+	auto last_clear_physics_step = 0;
+
+	for (auto idx_player = 0; idx_player < players.size(); idx_player++) {
+		auto& player = players[idx_player];
+		pos_previous_x[idx_player] = player.offset_x;
+		pos_previous_y[idx_player] = player.offset_y;
+	}
 
 	while (!glfwWindowShouldClose(window)) {
 		processInput(window);
@@ -692,71 +771,41 @@ int main() {
 			num_physics_steps++;
 		}
 
-		// Background
-		glClearColor(0.1f, 0.1f, 0.15f, 1.0f);
-		glClear(GL_COLOR_BUFFER_BIT);
-
-		// Game background
-		glUniform2f(offsetLoc, 0.0f, 0.0f);
-		glUniform4f(colorLoc, 0.0f, 0.0f, 0.0f, 1.0f);
-		glBindVertexArray(bgVAO);
-		glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
-
-		// Lines
-		glUniform4f(colorLoc, 240.0f / 255, 82.0f / 255, 156.0f / 255, 1.0f);
-		glBindVertexArray(buffer_info_lines.vao);
-		glDrawArrays(GL_LINES, 0, (GLsizei)line_segments.size() * sizeof(line_segments[0]));
-
-		// Barrels
-		for (auto& barrel : barrels) {
-			glUniform2f(offsetLoc, (float)barrel.offset_x, (float)barrel.offset_y);
-			glUniform4f(colorLoc, 0.7f, 0.4f, 0.4f, 1.0f);
-			glBindVertexArray(buffer_info_barrel.vao);
-			glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
-		}
-
-		// Players
-		auto num_alive = 0;
-
-		for (auto& player : players) {
-			if (!player.alive && ((num_physics_steps - player.dead_at_step) > 500)) {
-				continue;
-			}
-			glUniform2f(offsetLoc, (float)player.offset_x, (float)player.offset_y);
-
-			auto colors = std::vector<glm::vec3>{
-				{0.2f, 0.4f, 1.0f},
-				{0.3f, 0.5f, 0.8f},
-				{0.5f, 0.2f, 0.7f},
-				{0.7f, 0.8f, 0.7f},
-				{0.9f, 0.2f, 0.5f},
-				{0.5f, 0.7f, 0.2f},
-			};
-
-			auto color = colors[player.level];
-
-			if (!player.alive) {
-				color *= 0.5;
-			}
-
-			glUniform4f(colorLoc, color.r, color.g, color.b, 1.0f);
-
-			if (player.alive) {
-				num_alive++;
-			}
-
-			glBindVertexArray(buffer_info_player.vao);
-			glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
-		}
-
 		// Kill of long-running agents that does not move
-		if (!is_human && (num_physics_steps > 0) && (num_physics_steps % 2000 == 0)) {
+		if (!is_human && (num_physics_steps - last_clear_physics_step > 2000)) {
 			auto min_level = num_physics_steps / 2000;
 			std::cout << "Killing of agents below level " << min_level << std::endl;
+
 			for (auto& player : players) {
 				if (player.level < min_level) {
 					player.alive = false;
 				}
+			}
+
+			last_clear_physics_step = min_level * 2000;
+		}
+
+		// Kill players that do not move. Similar to above, more aggressive
+		if (!is_human && (num_physics_steps > 0) && (num_physics_steps % 200 == 0)) {
+			for (auto idx_player = 0; idx_player < players.size(); idx_player++) {
+				auto& player = players[idx_player];
+				auto prev_x = pos_previous_x[idx_player];
+				auto prev_y = pos_previous_y[idx_player];
+
+				if (std::hypotf((float)player.offset_x - prev_x, (float)player.offset_y - prev_y) < 20.0f) {
+					player.alive = false;
+				}
+
+				pos_previous_x[idx_player] = player.offset_x;
+				pos_previous_y[idx_player] = player.offset_y;
+			}
+		}
+
+		auto num_alive = 0;
+
+		for (auto& player : players) {
+			if (player.alive) {
+				num_alive++;
 			}
 		}
 
@@ -778,7 +827,9 @@ int main() {
 			num_frames_since_last_update = 0;
 		}
 
+		render(num_physics_steps, players, barrels, line_segments, shader_locations, buffer_info_background, buffer_info_player, buffer_info_barrel, buffer_info_lines);
 		glfwSwapBuffers(window);
+
 		glfwPollEvents();
 	}
 

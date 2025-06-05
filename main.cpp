@@ -9,17 +9,8 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
+#include <genetic_algorithm.h>
 #include <neural_net.h>
-
-const int INPUT_SIZE = 9;
-const int HIDDEN_SIZE = 2 * INPUT_SIZE;
-const int OUTPUT_SIZE = 3;
-const int WEIGHT_COUNT = (INPUT_SIZE * HIDDEN_SIZE) + (HIDDEN_SIZE * OUTPUT_SIZE); // No biases for simplicity
-const int POP_SIZE = 500;
-const int GENERATIONS = 100;
-const float MUTATION_RATE = 0.1f;
-const float MUTATION_STDDEV = 0.2f;
-const int SIM_STEPS = 20;
 
 enum class Action {
 	Left,
@@ -63,41 +54,6 @@ struct Buffer_info {
 	GLuint ebo = {};
 };
 
-struct Genome {
-	std::vector<float> weights = {};
-	float fitness = 0.0f;
-
-	Genome() {
-		weights.resize(WEIGHT_COUNT);
-
-		for (auto& weight : weights) {
-			weight = ((rand() / (float)RAND_MAX) * 2.0f - 1.0f); // [-1, 1]
-		}
-	}
-};
-
-Genome crossover(const Genome& a, const Genome& b) {
-	Genome child;
-	for (int i = 0; i < WEIGHT_COUNT; ++i) {
-		child.weights[i] = (rand() % 2 == 0) ? a.weights[i] : b.weights[i];
-	}
-	return child;
-}
-
-void mutate(Genome& g) {
-	for (float& w : g.weights) {
-		if ((rand() / (float)RAND_MAX) < MUTATION_RATE) {
-			w += ((rand() / (float)RAND_MAX) * 2.0f - 1.0f) * MUTATION_STDDEV; // small tweak
-		}
-	}
-}
-
-void process_input(GLFWwindow* window) {
-	if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
-		glfwSetWindowShouldClose(window, true);
-	}
-}
-
 const char* vertexShaderSource = R"glsl(
     #version 330 core
     layout (location = 0) in vec2 aPos;
@@ -118,6 +74,12 @@ const char* fragmentShaderSource = R"glsl(
         FragColor = uColor;
     }
 )glsl";
+
+void process_input(GLFWwindow* window) {
+	if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
+		glfwSetWindowShouldClose(window, true);
+	}
+}
 
 void spawn_barrel(std::vector<Entity>& barrels) {
 	auto barrel = Entity();
@@ -298,13 +260,12 @@ void brain_run_human(GLFWwindow* window, Player& player) {
 	}
 }
 
-std::vector<Genome> population(POP_SIZE);
-auto neural_net = Neural_net(INPUT_SIZE, HIDDEN_SIZE, OUTPUT_SIZE);
+std::unique_ptr<Genetic_algorithm> genetic_algorithm = nullptr;
+std::unique_ptr<Neural_net> neural_net = nullptr;
 
 void brain_run_machine(std::vector<Line_segment>& line_segments, std::vector<Player>& players, std::vector<Entity>& barrels) {
 	for (auto idx_player = 0; idx_player < players.size(); idx_player++) {
 		auto& player = players[idx_player];
-		auto& genome = population[idx_player];
 
 		auto distance_ceiling = 100.0f;
 		auto level = (float)player.level;
@@ -377,8 +338,9 @@ void brain_run_machine(std::vector<Line_segment>& line_segments, std::vector<Pla
 		};
 
 		auto idx_best_output = uint32_t{};
+		auto& genome = genetic_algorithm->population[idx_player];
 
-		if (!neural_net.forward(inputs, genome.weights, idx_best_output)) {
+		if (!neural_net->forward(inputs, genome.weights, idx_best_output)) {
 			std::cout << "Could not feed-forward\n";
 		}
 
@@ -412,35 +374,22 @@ void brain_run(GLFWwindow* window, std::vector<Line_segment>& line_segments, std
 void brain_update(const std::vector<Player>& players) {
 	static auto best_score_overall = 0.0f;
 	static auto best_level_overall = 0;
-
 	auto best_level = 0;
+	auto best_score = 0.0f;
+	auto num_agents = players.size();
 
-	for (auto idx_agent = 0; idx_agent < POP_SIZE; idx_agent++) {
-		population[idx_agent].fitness = (float)players[idx_agent].score;
+	for (auto idx_agent = 0; idx_agent < num_agents; idx_agent++) {
+		genetic_algorithm->population[idx_agent].fitness = (float)players[idx_agent].score;
 		best_level = std::max(best_level, players[idx_agent].level);
+		best_score = std::max(best_score, (float)players[idx_agent].score);
 	}
 
 	best_level_overall = std::max(best_level_overall, best_level);
-
-	std::sort(population.begin(), population.end(), [](const Genome& genome1, const Genome& genome2) {return genome1.fitness > genome2.fitness; });
-
-	best_score_overall = std::max(best_score_overall, population.front().fitness);
-	std::cout << "Best score in generation (best total): " << population.front().fitness << " (" << best_score_overall << ")\n";
+	best_score_overall = std::max(best_score_overall, best_score);
+	std::cout << "Best score in generation (best total): " << best_score << " (" << best_score_overall << ")\n";
 	std::cout << "Best level in generation (best total): " << best_level << " (" << best_level_overall << ")\n";
 
-	std::vector<Genome> new_pop;
-	int elites = POP_SIZE / 20;
-	new_pop.insert(new_pop.end(), population.begin(), population.begin() + elites);
-
-	while (new_pop.size() < POP_SIZE) {
-		const Genome& p1 = population[rand() % elites];
-		const Genome& p2 = population[rand() % elites];
-		Genome child = crossover(p1, p2);
-		mutate(child);
-		new_pop.push_back(child);
-	}
-
-	population = new_pop;
+	genetic_algorithm->new_generation();
 }
 
 void game_logics(int num_physics_steps, std::vector<Entity>& barrels) {
@@ -449,13 +398,12 @@ void game_logics(int num_physics_steps, std::vector<Entity>& barrels) {
 	}
 }
 
-void init_players(std::vector<Player>& players, bool is_human, int player_width, int player_height) {
-	auto num_agents = POP_SIZE;
+void init_players(std::vector<Player>& players, uint32_t num_agents, bool is_human, int player_width, int player_height) {
 	auto num_players = is_human ? 1 : num_agents;
 
 	players.resize(num_agents);
 
-	for (auto idx_player = 0; idx_player < num_players; idx_player++) {
+	for (uint32_t idx_player = 0; idx_player < num_players; idx_player++) {
 		auto player = Player();
 		player.offset_x = -50;
 		player.offset_y = -100;
@@ -588,8 +536,9 @@ int main() {
 	auto players = std::vector<Player>();
 	auto player_width = 8;
 	auto player_height = 8;
+	auto num_agents = 500;
 
-	init_players(players, is_human, player_width, player_height);
+	init_players(players, num_agents, is_human, player_width, player_height);
 
 	auto vertices_entity_8x8 = std::vector<float>{
 		-player_width / 2.0f, -player_height / 2.0f,
@@ -728,8 +677,8 @@ int main() {
 	auto num_physics_steps = 0;
 	auto time_last_fps = glfwGetTime();
 	auto num_frames_since_last_update = 0;
-	auto pos_previous_x = std::vector<int>(POP_SIZE);
-	auto pos_previous_y = std::vector<int>(POP_SIZE);
+	auto pos_previous_x = std::vector<int>(num_agents);
+	auto pos_previous_y = std::vector<int>(num_agents);
 	auto last_clear_physics_step = 0;
 
 	for (auto idx_player = 0; idx_player < players.size(); idx_player++) {
@@ -737,6 +686,14 @@ int main() {
 		pos_previous_x[idx_player] = player.offset_x;
 		pos_previous_y[idx_player] = player.offset_y;
 	}
+
+	auto num_inputs = 9;
+	auto num_hidden = 2 * num_inputs;
+	auto num_outputs = 3;
+	auto num_weights = (num_inputs * num_hidden) + (num_hidden * num_outputs); // No biases for simplicity
+
+	neural_net = std::make_unique<Neural_net>(num_inputs, num_hidden, num_outputs);
+	genetic_algorithm = std::make_unique<Genetic_algorithm>(num_agents, num_weights);
 
 	while (!glfwWindowShouldClose(window)) {
 		process_input(window);
@@ -791,7 +748,7 @@ int main() {
 		// Reset
 		if (num_alive == 0) {
 			brain_update(players);
-			init_players(players, is_human, player_width, player_height);
+			init_players(players, num_agents, is_human, player_width, player_height);
 			num_physics_steps = 0;
 			barrels.clear();
 		}

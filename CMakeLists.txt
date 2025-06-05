@@ -8,8 +8,10 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(SOURCES
+    "genetic_algorithm.cpp"
     "main.cpp"
-    "neural_net.cpp")
+    "neural_net.cpp"
+)
 
 add_executable(${TARGET_NAME} ${SOURCES})
 

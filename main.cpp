@@ -717,6 +717,7 @@ int main() {
 	neural_net = std::make_unique<Neural_net>(num_inputs, num_hidden, num_outputs);
 	genetic_algorithm = std::make_unique<Genetic_algorithm>(num_agents, num_weights);
 	auto barrel_buffer = Barrel_buffer(50);
+	auto generation = 1;
 
 	while (!glfwWindowShouldClose(window)) {
 		process_input(window);
@@ -770,10 +771,12 @@ int main() {
 
 		// Reset
 		if (num_alive == 0) {
+			std::cout << "===\nDone with generation " << generation++ << std::endl;
 			brain_update(players);
 			init_players(players, num_agents, is_human, player_width, player_height);
 			num_physics_steps = 0;
 			barrel_buffer.clear();
+			std::cout << "===\n";
 		}
 
 		// FPS

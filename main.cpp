@@ -27,59 +27,6 @@ enum class Action {
 	Jump
 };
 
-struct Genome {
-	std::vector<float> weights;
-	float fitness;
-
-	Genome() : weights(WEIGHT_COUNT), fitness(0.0f) {
-		for (auto& w : weights) {
-			w = ((rand() / (float)RAND_MAX) * 2.0f - 1.0f); // [-1, 1]
-		}
-	}
-};
-
-Genome crossover(const Genome& a, const Genome& b) {
-	Genome child;
-	for (int i = 0; i < WEIGHT_COUNT; ++i) {
-		child.weights[i] = (rand() % 2 == 0) ? a.weights[i] : b.weights[i];
-	}
-	return child;
-}
-
-void mutate(Genome& g) {
-	for (float& w : g.weights) {
-		if ((rand() / (float)RAND_MAX) < MUTATION_RATE)
-			w += ((rand() / (float)RAND_MAX) * 2.0f - 1.0f) * MUTATION_STDDEV; // small tweak
-	}
-}
-
-const char* vertexShaderSource = R"glsl(
-    #version 330 core
-    layout (location = 0) in vec2 aPos;
-    uniform vec2 offset;
-    uniform mat4 uProjection;
-
-    void main() {
-        gl_Position = uProjection * vec4(aPos + offset, 0.0, 1.0);
-    }
-)glsl";
-
-const char* fragmentShaderSource = R"glsl(
-    #version 330 core
-    out vec4 FragColor;
-    uniform vec4 uColor;
-
-    void main() {
-        FragColor = uColor;
-    }
-)glsl";
-
-void processInput(GLFWwindow* window) {
-	if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
-		glfwSetWindowShouldClose(window, true);
-	}
-}
-
 struct Entity {
 	int offset_x = {};
 	int offset_y = {};
@@ -115,6 +62,62 @@ struct Buffer_info {
 	GLuint vbo = {};
 	GLuint ebo = {};
 };
+
+struct Genome {
+	std::vector<float> weights = {};
+	float fitness = 0.0f;
+
+	Genome() {
+		weights.resize(WEIGHT_COUNT);
+
+		for (auto& weight : weights) {
+			weight = ((rand() / (float)RAND_MAX) * 2.0f - 1.0f); // [-1, 1]
+		}
+	}
+};
+
+Genome crossover(const Genome& a, const Genome& b) {
+	Genome child;
+	for (int i = 0; i < WEIGHT_COUNT; ++i) {
+		child.weights[i] = (rand() % 2 == 0) ? a.weights[i] : b.weights[i];
+	}
+	return child;
+}
+
+void mutate(Genome& g) {
+	for (float& w : g.weights) {
+		if ((rand() / (float)RAND_MAX) < MUTATION_RATE) {
+			w += ((rand() / (float)RAND_MAX) * 2.0f - 1.0f) * MUTATION_STDDEV; // small tweak
+		}
+	}
+}
+
+void process_input(GLFWwindow* window) {
+	if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
+		glfwSetWindowShouldClose(window, true);
+	}
+}
+
+const char* vertexShaderSource = R"glsl(
+    #version 330 core
+    layout (location = 0) in vec2 aPos;
+    uniform vec2 offset;
+    uniform mat4 uProjection;
+
+    void main() {
+        gl_Position = uProjection * vec4(aPos + offset, 0.0, 1.0);
+    }
+)glsl";
+
+const char* fragmentShaderSource = R"glsl(
+    #version 330 core
+    out vec4 FragColor;
+    uniform vec4 uColor;
+
+    void main() {
+        FragColor = uColor;
+    }
+)glsl";
 
 void spawn_barrel(std::vector<Entity>& barrels) {
 	auto barrel = Entity();
@@ -736,7 +739,7 @@ int main() {
 	}
 
 	while (!glfwWindowShouldClose(window)) {
-		processInput(window);
+		process_input(window);
 		auto cur_time = glfwGetTime();
 
 		while ((cur_time - time_last_physics) > physics_update_rate_s) {

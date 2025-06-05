@@ -7,7 +7,11 @@ SET(TARGET_NAME donkey)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-add_executable(${TARGET_NAME} main.cpp)
+set(SOURCES
+    "main.cpp"
+    "neural_net.cpp")
+
+add_executable(${TARGET_NAME} ${SOURCES})
 
 target_include_directories(${TARGET_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}

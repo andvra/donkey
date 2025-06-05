@@ -21,7 +21,11 @@ const float MUTATION_RATE = 0.1f;
 const float MUTATION_STDDEV = 0.2f;
 const int SIM_STEPS = 20;
 
-enum Action { LEFT = 0, RIGHT = 1, JUMP = 2 };
+enum class Action {
+	Left,
+	Right,
+	Jump
+};
 
 struct Genome {
 	std::vector<float> weights;
@@ -378,9 +382,9 @@ void brain_run_machine(std::vector<Line_segment>& line_segments, std::vector<Pla
 		auto action = static_cast<Action>(idx_best_output);
 
 		switch (action) {
-		case Action::JUMP: jump(player); break;
-		case Action::LEFT: move_left(player); break;
-		case Action::RIGHT: move_right(player); break;
+		case Action::Jump: jump(player); break;
+		case Action::Left: move_left(player); break;
+		case Action::Right: move_right(player); break;
 		}
 	}
 }

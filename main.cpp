@@ -81,18 +81,41 @@ void process_input(GLFWwindow* window) {
 	}
 }
 
-void spawn_barrel(std::vector<Entity>& barrels) {
-	auto barrel = Entity();
+// TODO: This buffer can instead hold generic objects
+class Barrel_buffer {
+public:
+	Barrel_buffer(uint32_t max_count) : max_count(max_count) {}
 
-	barrel.is_on_ground = false;
-	barrel.height = 8;
-	barrel.width = 8;
-	barrel.offset_y = 100;
-	barrel.offset_x = 0;
-	barrel.v_x = 2 * (2 * (std::rand() % 2) - 1);
+	void spawn_barrel() {
+		auto barrel = Entity();
 
-	barrels.push_back(barrel);
-}
+		barrel.is_on_ground = false;
+		barrel.height = 8;
+		barrel.width = 8;
+		barrel.offset_y = 100;
+		barrel.offset_x = 0;
+		barrel.v_x = 2 * (2 * (std::rand() % 2) - 1);
+
+		if (barrels.size() == max_count) {
+			barrels[idx_cur] = barrel;
+		}
+		else {
+			barrels.push_back(barrel);
+		}
+
+		idx_cur = (idx_cur + 1) % max_count;
+	}
+
+	void clear() {
+		barrels.clear();
+		idx_cur = 0;
+	}
+
+	std::vector<Entity> barrels = {};
+private:
+	uint32_t max_count = {};
+	uint32_t idx_cur = 0;
+};
 
 void physics(int num_physics_steps, std::vector<Line_segment>& line_segments, std::vector<Player>& players, std::vector<Entity>& barrels) {
 	auto max_x = 14 * 8;
@@ -392,9 +415,9 @@ void brain_update(const std::vector<Player>& players) {
 	genetic_algorithm->new_generation();
 }
 
-void game_logics(int num_physics_steps, std::vector<Entity>& barrels) {
+void game_logics(int num_physics_steps, Barrel_buffer& barrel_buffer) {
 	if (num_physics_steps % 100 == 0) {
-		spawn_barrel(barrels);
+		barrel_buffer.spawn_barrel();
 	}
 }
 
@@ -671,7 +694,6 @@ int main() {
 	// Turns our coordinate system into pixel coordinats with window center as origin
 	glUniformMatrix4fv(shader_locations.projection, 1, GL_FALSE, glm::value_ptr(projection));
 
-	auto barrels = std::vector<Entity>();
 	auto physics_update_rate_s = 1 / 240.0;// 120.0;// 1.0 / 30;
 	auto time_last_physics = glfwGetTime();
 	auto num_physics_steps = 0;
@@ -694,15 +716,16 @@ int main() {
 
 	neural_net = std::make_unique<Neural_net>(num_inputs, num_hidden, num_outputs);
 	genetic_algorithm = std::make_unique<Genetic_algorithm>(num_agents, num_weights);
+	auto barrel_buffer = Barrel_buffer(50);
 
 	while (!glfwWindowShouldClose(window)) {
 		process_input(window);
 		auto cur_time = glfwGetTime();
 
 		while ((cur_time - time_last_physics) > physics_update_rate_s) {
-			game_logics(num_physics_steps, barrels);
-			brain_run(window, line_segments, players, barrels, is_human);
-			physics(num_physics_steps, line_segments, players, barrels);
+			game_logics(num_physics_steps, barrel_buffer);
+			brain_run(window, line_segments, players, barrel_buffer.barrels, is_human);
+			physics(num_physics_steps, line_segments, players, barrel_buffer.barrels);
 			time_last_physics += physics_update_rate_s;
 			num_physics_steps++;
 		}
@@ -750,7 +773,7 @@ int main() {
 			brain_update(players);
 			init_players(players, num_agents, is_human, player_width, player_height);
 			num_physics_steps = 0;
-			barrels.clear();
+			barrel_buffer.clear();
 		}
 
 		// FPS
@@ -763,7 +786,7 @@ int main() {
 			num_frames_since_last_update = 0;
 		}
 
-		render(num_physics_steps, players, barrels, line_segments, shader_locations, buffer_info_background, buffer_info_player, buffer_info_barrel, buffer_info_lines);
+		render(num_physics_steps, players, barrel_buffer.barrels, line_segments, shader_locations, buffer_info_background, buffer_info_player, buffer_info_barrel, buffer_info_lines);
 		glfwSwapBuffers(window);
 
 		glfwPollEvents();

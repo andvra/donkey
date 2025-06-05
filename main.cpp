@@ -436,15 +436,22 @@ void brain_run(GLFWwindow* window, std::vector<Line_segment>& line_segments, std
 
 void brain_update(const std::vector<Player>& players) {
 	static auto best_score_overall = 0.0f;
+	static auto best_level_overall = 0;
+
+	auto best_level = 0;
 
 	for (auto idx_agent = 0; idx_agent < POP_SIZE; idx_agent++) {
 		population[idx_agent].fitness = (float)players[idx_agent].score;
+		best_level = std::max(best_level, players[idx_agent].level);
 	}
+
+	best_level_overall = std::max(best_level_overall, best_level);
 
 	std::sort(population.begin(), population.end(), [](const Genome& genome1, const Genome& genome2) {return genome1.fitness > genome2.fitness; });
 
 	best_score_overall = std::max(best_score_overall, population.front().fitness);
 	std::cout << "Best score in generation (best total): " << population.front().fitness << " (" << best_score_overall << ")\n";
+	std::cout << "Best level in generation (best total): " << best_level << " (" << best_level_overall << ")\n";
 
 	std::vector<Genome> new_pop;
 	int elites = POP_SIZE / 20;

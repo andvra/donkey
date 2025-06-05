@@ -156,9 +156,9 @@ struct Shader_locations {
 };
 
 struct Buffer_info {
-	GLuint vao;
-	GLuint vbo;
-	GLuint ebo;
+	GLuint vao = {};
+	GLuint vbo = {};
+	GLuint ebo = {};
 };
 
 void spawn_barrel(std::vector<Entity>& barrels) {
@@ -621,7 +621,7 @@ int main() {
 		2,3,0
 	};
 
-	auto buffer_info_player = Buffer_info();
+	auto buffer_info_player = Buffer_info{};
 
 	glGenVertexArrays(1, &buffer_info_player.vao);
 	glGenBuffers(1, &buffer_info_player.vbo);
@@ -634,7 +634,7 @@ int main() {
 	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
 	glEnableVertexAttribArray(0);
 
-	auto buffer_info_barrel = Buffer_info();
+	auto buffer_info_barrel = Buffer_info{};
 
 	glGenVertexArrays(1, &buffer_info_barrel.vao);
 	glGenBuffers(1, &buffer_info_barrel.vbo);

@@ -9,7 +9,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
-const int INPUT_SIZE = 10;
+const int INPUT_SIZE = 9;
 const int HIDDEN_SIZE = 2 * INPUT_SIZE;
 const int OUTPUT_SIZE = 3;
 const int WEIGHT_COUNT = (INPUT_SIZE * HIDDEN_SIZE) + (HIDDEN_SIZE * OUTPUT_SIZE); // No biases for simplicity
@@ -21,38 +21,64 @@ const int SIM_STEPS = 20;
 
 enum Action { LEFT = 0, RIGHT = 1, JUMP = 2 };
 
-struct NeuralNet {
-	static Action forward(
-		const std::vector<float>& weights, float is_on_ground, float agent_x, float agent_y, float level,
-		float barrel_distance_first, float barrel_angle_first, float barrel_distance_second, float barrel_angle_second, float distance_ceiling) {
-		float input[INPUT_SIZE] = { is_on_ground, agent_x, agent_y, level, barrel_distance_first, barrel_angle_first, barrel_distance_second, barrel_angle_second, distance_ceiling };
+class Neural_net {
+public:
+	uint32_t num_inputs = {};
+	uint32_t num_hidden = {};
+	uint32_t num_outputs = {};
+	uint32_t num_expected_weights = {};
+	std::vector<float> vector_hidden = {};
+	std::vector<float> vector_outputs = {};
 
-		// Hidden layer
-		float hidden[HIDDEN_SIZE];
-		for (int i = 0; i < HIDDEN_SIZE; ++i) {
-			hidden[i] = 0.0f;
-			for (int j = 0; j < INPUT_SIZE; ++j) {
-				hidden[i] += input[j] * weights[j * HIDDEN_SIZE + i];
+	Neural_net(uint32_t num_inputs, uint32_t num_hidden, uint32_t num_outputs) :
+		num_inputs(num_inputs), num_hidden(num_hidden), num_outputs(num_outputs) {
+		if (num_hidden > 0) {
+			vector_hidden.resize(num_hidden, 0.0f);
+		}
+
+		if (num_outputs > 0) {
+			vector_outputs.resize(num_outputs, 0.0f);
+		}
+
+		num_expected_weights = (num_inputs * num_hidden) + (num_hidden * num_outputs);
+	}
+
+	bool forward(const std::vector<float>& vector_inputs, const std::vector<float>& vector_weights, uint32_t& idx_best_output) {
+		if (vector_inputs.size() != num_inputs) {
+			return false;
+		}
+
+		if (vector_weights.size() != num_expected_weights) {
+			return false;
+		}
+
+		auto hidden = vector_hidden.data();
+		auto outputs = vector_outputs.data();
+		auto inputs = vector_inputs.data();
+		auto weights = vector_weights.data();
+
+		for (uint32_t idx_hidden = 0; idx_hidden < num_hidden; ++idx_hidden) {
+			hidden[idx_hidden] = 0.0f;
+			for (uint32_t idx_input = 0; idx_input < num_inputs; ++idx_input) {
+				hidden[idx_hidden] += inputs[idx_input] * weights[idx_input * num_hidden + idx_hidden];
 			}
-			hidden[i] = std::tanh(hidden[i]); // activation
+
+			hidden[idx_hidden] = std::tanh(hidden[idx_hidden]);
 		}
 
-		// Output layer
-		float output[OUTPUT_SIZE] = { 0 };
-		int offset = INPUT_SIZE * HIDDEN_SIZE;
-		for (int i = 0; i < OUTPUT_SIZE; ++i) {
-			for (int j = 0; j < HIDDEN_SIZE; ++j) {
-				output[i] += hidden[j] * weights[offset + j * OUTPUT_SIZE + i];
+		auto offset = num_inputs * num_hidden;
+
+		for (uint32_t idx_output = 0; idx_output < num_outputs; ++idx_output) {
+			outputs[idx_output] = 0.0f;
+			for (uint32_t idx_hidden = 0; idx_hidden < num_hidden; ++idx_hidden) {
+				outputs[idx_output] += hidden[idx_hidden] * weights[offset + idx_hidden * num_outputs + idx_output];
 			}
 		}
 
-		// Pick max
-		int best = 0;
-		for (int i = 1; i < OUTPUT_SIZE; ++i) {
-			if (output[i] > output[best]) best = i;
-		}
+		auto best_output_val = std::max_element(vector_outputs.begin(), vector_outputs.end());
+		idx_best_output = static_cast<uint32_t>(std::distance(vector_outputs.begin(), best_output_val));
 
-		return static_cast<Action>(best);
+		return true;
 	}
 };
 
@@ -64,24 +90,6 @@ struct Genome {
 		for (auto& w : weights) w = ((rand() / (float)RAND_MAX) * 2.0f - 1.0f); // [-1, 1]
 	}
 };
-
-//float evaluate_fitness(const Genome& g) {
-//	NeuralNet nn(g.weights);
-//	float agent_x = 0.0f;
-//	float goal_x = 10.0f;
-//
-//	for (int t = 0; t < SIM_STEPS; ++t) {
-//		Action a = nn.forward(agent_x, goal_x);
-//		switch (a) {
-//		case LEFT:  agent_x -= 1.0f; break;
-//		case RIGHT: agent_x += 1.0f; break;
-//		case JUMP:  break; // does nothing for now
-//		}
-//	}
-//
-//	float distance = std::abs(goal_x - agent_x);
-//	return -distance; // Closer is better (higher fitness)
-//}
 
 Genome crossover(const Genome& a, const Genome& b) {
 	Genome child;
@@ -341,6 +349,7 @@ void brain_run_human(GLFWwindow* window, Player& player) {
 }
 
 std::vector<Genome> population(POP_SIZE);
+auto neural_net = Neural_net(INPUT_SIZE, HIDDEN_SIZE, OUTPUT_SIZE);
 
 void brain_run_machine(std::vector<Line_segment>& line_segments, std::vector<Player>& players, std::vector<Entity>& barrels) {
 	for (auto idx_player = 0; idx_player < players.size(); idx_player++) {
@@ -405,9 +414,25 @@ void brain_run_machine(std::vector<Line_segment>& line_segments, std::vector<Pla
 
 		distance_ceiling /= 100.0f;
 
-		// TODO: The two next boxes might be of interest!
-		auto action = NeuralNet::forward(genome.weights, is_on_ground, player_offset_x, player_offset_y, level,
-			barrel_distances[0].distance, barrel_distances[0].angle, barrel_distances[1].distance, barrel_distances[1].angle, distance_ceiling);
+		auto inputs = std::vector<float>{
+			is_on_ground,
+			player_offset_x,
+			player_offset_y,
+			level,
+			barrel_distances[0].distance,
+			barrel_distances[0].angle,
+			barrel_distances[1].distance,
+			barrel_distances[1].angle,
+			distance_ceiling
+		};
+
+		auto idx_best_output = uint32_t{};
+
+		if (!neural_net.forward(inputs, genome.weights, idx_best_output)) {
+			std::cout << "Could not feed-forward\n";
+		}
+
+		auto action = static_cast<Action>(idx_best_output);
 
 		switch (action) {
 		case Action::JUMP: jump(player); break;

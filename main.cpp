@@ -706,6 +706,7 @@ int main() {
 	auto pos_previous_x = std::vector<int>(num_agents);
 	auto pos_previous_y = std::vector<int>(num_agents);
 	auto last_clear_physics_step = 0;
+	auto last_clear_no_move = 0;
 
 	for (auto idx_player = 0; idx_player < players.size(); idx_player++) {
 		auto& player = players[idx_player];
@@ -750,19 +751,21 @@ int main() {
 		}
 
 		// Kill players that do not move. Similar to above, more aggressive
-		if (!is_human && (num_physics_steps > 0) && (num_physics_steps % 200 == 0)) {
+		if (!is_human && (num_physics_steps - last_clear_no_move > 200)) {
 			for (auto idx_player = 0; idx_player < players.size(); idx_player++) {
 				auto& player = players[idx_player];
-				auto prev_x = pos_previous_x[idx_player];
-				auto prev_y = pos_previous_y[idx_player];
+				auto prev_x = pos_previous_x.data()[idx_player];
+				auto prev_y = pos_previous_y.data()[idx_player];
 
-				if (std::hypotf((float)player.offset_x - prev_x, (float)player.offset_y - prev_y) < 20.0f) {
+				if (std::hypotf((float)player.offset_x - prev_x, (float)player.offset_y - prev_y) < 10.0f) {
 					player.alive = false;
 				}
 
-				pos_previous_x[idx_player] = player.offset_x;
-				pos_previous_y[idx_player] = player.offset_y;
+				pos_previous_x.data()[idx_player] = player.offset_x;
+				pos_previous_y.data()[idx_player] = player.offset_y;
 			}
+
+			last_clear_no_move = 200 * (num_physics_steps / 200);
 		}
 
 		auto num_alive = 0;

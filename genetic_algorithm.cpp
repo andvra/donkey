@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cmath>
 
 #include <genetic_algorithm.h>
 
@@ -45,7 +46,7 @@ bool Genetic_algorithm::new_generation() {
 	std::sort(population.begin(), population.end(), [](const Genome& genome1, const Genome& genome2) {return genome1.fitness > genome2.fitness; });
 	auto num_genomes = population.size();
 	auto new_population = std::vector<Genome>();
-	auto num_elites = static_cast<uint32_t>(num_genomes * elites_rate);
+	auto num_elites = static_cast<uint32_t>(std::ceil(num_genomes * elites_rate));
 
 	new_population.insert(new_population.end(), population.begin(), population.begin() + num_elites);
 

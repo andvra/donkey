@@ -54,6 +54,37 @@ struct Buffer_info {
 	GLuint ebo = {};
 };
 
+struct Settings {
+	struct Brain {
+		int num_inputs = 9;
+		int num_hidden = 2 * num_inputs;
+		int num_outputs = 3;
+		int num_weights = (num_inputs * num_hidden) + (num_hidden * num_outputs); // No biases for simplicity
+	};
+
+	struct Gui {
+		int window_width = 800 * 2;
+		int window_height = 600 * 2;
+		int square_size_pixels = 8;
+		int num_squares_x = 28;
+		int num_squares_y = 32;
+		int board_width = num_squares_x * square_size_pixels;
+		int board_height = num_squares_y * square_size_pixels;
+		float scale = 4.0f;
+	};
+
+	struct Game {
+		int num_agents = 500;
+		int initial_jump_size = 6;
+	};
+
+	Brain brain = {};
+	Game game = {};
+	Gui gui = {};
+};
+
+auto settings = Settings{ };
+
 const char* vertexShaderSource = R"glsl(
     #version 330 core
     layout (location = 0) in vec2 aPos;
@@ -250,7 +281,7 @@ void jump(Player& player) {
 		return;
 	}
 
-	player.v_y = 6;
+	player.v_y = settings.game.initial_jump_size;
 	player.is_on_ground = false;
 }
 
@@ -443,27 +474,17 @@ void init_players(std::vector<Player>& players, uint32_t num_agents, bool is_hum
 	}
 }
 
-void mouse_button_callback(GLFWwindow* window, int button, int action, int)
-{
-	auto window_width = 800 * 2;
-	auto window_height = 600 * 2;
-	auto square_size_pixels = 8;
-	auto num_squares_x = 28;
-	auto num_squares_y = 32;
-	auto board_width = num_squares_x * square_size_pixels;
-	auto board_height = num_squares_y * square_size_pixels;
-	auto scale = 4.0f;
-
+void mouse_button_callback(GLFWwindow* window, int button, int action, int) {
 	if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
 		double xpos, ypos;
 		glfwGetCursorPos(window, &xpos, &ypos);
-		xpos -= window_width / 2.0;
-		ypos -= window_height / 2.0;
-		auto ok_x = std::abs(xpos) <= scale * board_width / 2.0;
-		auto ok_y = std::abs(ypos) <= scale * board_height / 2.0;
+		xpos -= settings.gui.window_width / 2.0;
+		ypos -= settings.gui.window_height / 2.0;
+		auto ok_x = std::abs(xpos) <= settings.gui.scale * settings.gui.board_width / 2.0;
+		auto ok_y = std::abs(ypos) <= settings.gui.scale * settings.gui.board_height / 2.0;
 		if (ok_x && ok_y) {
-			xpos /= scale;
-			ypos = (-ypos) / scale;
+			xpos /= settings.gui.scale;
+			ypos = (-ypos) / settings.gui.scale;
 			std::cout << "x: " << (int)xpos << " y: " << (int)ypos << std::endl;
 		}
 	}
@@ -524,15 +545,12 @@ void render(int num_physics_steps, const std::vector<Player>& players, const std
 }
 
 int main() {
-	auto window_width = 800 * 2;
-	auto window_height = 600 * 2;
-
 	glfwInit();
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-	GLFWwindow* window = glfwCreateWindow(window_width, window_height, "Donkey", nullptr, nullptr);
+	GLFWwindow* window = glfwCreateWindow(settings.gui.window_width, settings.gui.window_height, "Donkey", nullptr, nullptr);
 
 	glfwSetMouseButtonCallback(window, mouse_button_callback);
 
@@ -565,9 +583,8 @@ int main() {
 	auto players = std::vector<Player>();
 	auto player_width = 8;
 	auto player_height = 8;
-	auto num_agents = 500;
 
-	init_players(players, num_agents, is_human, player_width, player_height);
+	init_players(players, settings.game.num_agents, is_human, player_width, player_height);
 
 	auto vertices_entity_8x8 = std::vector<float>{
 		-player_width / 2.0f, -player_height / 2.0f,
@@ -691,10 +708,10 @@ int main() {
 	auto scale = 4.0f;
 
 	auto projection = (glm::mat4)glm::ortho(
-		(1.0f / scale) * -window_width / 2.0f,
-		(1.0f / scale) * window_width / 2.0f,
-		(1.0f / scale) * -window_height / 2.0f,
-		(1.0f / scale) * window_height / 2.0f
+		(1.0f / scale) * -settings.gui.window_width / 2.0f,
+		(1.0f / scale) * settings.gui.window_width / 2.0f,
+		(1.0f / scale) * -settings.gui.window_height / 2.0f,
+		(1.0f / scale) * settings.gui.window_height / 2.0f
 	);
 
 	// Turns our coordinate system into pixel coordinats with window center as origin
@@ -705,8 +722,8 @@ int main() {
 	auto num_physics_steps = 0;
 	auto time_last_fps = glfwGetTime();
 	auto num_frames_since_last_update = 0;
-	auto pos_previous_x = std::vector<int>(num_agents);
-	auto pos_previous_y = std::vector<int>(num_agents);
+	auto pos_previous_x = std::vector<int>(settings.game.num_agents);
+	auto pos_previous_y = std::vector<int>(settings.game.num_agents);
 	auto last_clear_physics_step = 0;
 	auto last_clear_no_move = 0;
 
@@ -716,13 +733,8 @@ int main() {
 		pos_previous_y[idx_player] = player.offset_y;
 	}
 
-	auto num_inputs = 9;
-	auto num_hidden = 2 * num_inputs;
-	auto num_outputs = 3;
-	auto num_weights = (num_inputs * num_hidden) + (num_hidden * num_outputs); // No biases for simplicity
-
-	neural_net = std::make_unique<Neural_net>(num_inputs, num_hidden, num_outputs);
-	genetic_algorithm = std::make_unique<Genetic_algorithm>(num_agents, num_weights);
+	neural_net = std::make_unique<Neural_net>(settings.brain.num_inputs, settings.brain.num_hidden, settings.brain.num_outputs);
+	genetic_algorithm = std::make_unique<Genetic_algorithm>(settings.game.num_agents, settings.brain.num_weights);
 	auto barrel_buffer = Circular_buffer<Entity>(50);
 	auto generation = 1;
 
@@ -782,7 +794,7 @@ int main() {
 		if (num_alive == 0) {
 			std::cout << "===\nDone with generation " << generation++ << std::endl;
 			brain_update(players);
-			init_players(players, num_agents, is_human, player_width, player_height);
+			init_players(players, settings.game.num_agents, is_human, player_width, player_height);
 			num_physics_steps = 0;
 			barrel_buffer.clear();
 			std::cout << "===\n";

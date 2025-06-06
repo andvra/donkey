@@ -62,6 +62,12 @@ struct Settings {
 		int num_weights = (num_inputs * num_hidden) + (num_hidden * num_outputs); // No biases for simplicity
 	};
 
+	struct Game {
+		int num_agents = 500;
+		int initial_jump_size = 6;
+		float physics_update_rate_hz = 250.0f;
+	};
+
 	struct Gui {
 		int window_width = 800 * 2;
 		int window_height = 600 * 2;
@@ -71,11 +77,6 @@ struct Settings {
 		int board_width = num_squares_x * square_size_pixels;
 		int board_height = num_squares_y * square_size_pixels;
 		float scale = 4.0f;
-	};
-
-	struct Game {
-		int num_agents = 500;
-		int initial_jump_size = 6;
 	};
 
 	Brain brain = {};
@@ -717,7 +718,7 @@ int main() {
 	// Turns our coordinate system into pixel coordinats with window center as origin
 	glUniformMatrix4fv(shader_locations.projection, 1, GL_FALSE, glm::value_ptr(projection));
 
-	auto physics_update_rate_s = 1 / 240.0;// 120.0;// 1.0 / 30;
+	auto physics_update_rate_s = 1 / settings.game.physics_update_rate_hz;
 	auto time_last_physics = glfwGetTime();
 	auto num_physics_steps = 0;
 	auto time_last_fps = glfwGetTime();

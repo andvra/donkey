@@ -84,7 +84,9 @@ void process_input(GLFWwindow* window) {
 template <typename T>
 class Circular_buffer {
 public:
-	Circular_buffer(uint32_t max_count) : max_count(max_count) {}
+	Circular_buffer(uint32_t max_count) : max_count(max_count) {
+		elements.reserve(max_count);
+	}
 
 	void add_element(const T& element) {
 		if (elements.size() == max_count) {
